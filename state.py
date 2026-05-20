@@ -15,6 +15,9 @@ class AgentState(TypedDict):
     # 消息历史（核心循环状态，对标 Claude Code 的 messages[]）
     messages: Annotated[List[BaseMessage], operator.add]
     
+    # 会话 ID（用于用量追踪和状态隔离）
+    thread_id: str
+    
     # CoT 思考链记录
     thoughts: List[str]
     
@@ -33,11 +36,14 @@ class AgentState(TypedDict):
     # 是否需要启动 ToT 深度思考模式
     need_tot: bool
     
+    # ToT 轮次计数（独立的 ToT 循环控制）
+    tot_rounds: int
+    
     # 工具执行结果缓存
     tool_results: Dict[str, Any]
     
-    # ToT 轮次计数（独立的 ToT 循环控制）
-    tot_rounds: int
+    # 权限确认标记（Human-in-the-loop，对标 Claude Code 权限系统）
+    permission_granted: bool
     
     # Token 成本追踪（对标 Claude Code 的 cost-tracker.ts）
     total_tokens: int

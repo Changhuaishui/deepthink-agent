@@ -4,328 +4,284 @@ LangGraph 节点定义
 对标 Claude Code 的 query.ts 主循环 + 书中第5章的感知-思考-行动架构
 """
 import json
-import os
-from typing import Dict, Any, List
+import time
+from typing import Dict, Any, List, Literal
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
+from config import Config
 from state import AgentState
 from tools import ALL_TOOLS
+from utils.usage_db import usage_db
 
 
 # ---------------------------------------------------------------------------
-# LLM 初始化
+# LLM 初始化（规范化的配置管理）
 # ---------------------------------------------------------------------------
-def get_llm(temperature: float = 0.3) -> ChatOpenAI:
-    """获取配置的 LLM 实例
+def get_llm(temperature: float = None) -> ChatOpenAI:
+    """获取配置的 LLM 实例（支持 DeepSeek / OpenAI / 任意兼容服务）"""
+    if not Config.is_api_ready():
+        raise RuntimeError(
+            "API 未配置。请在 .env 文件中设置 OPENAI_API_KEY，"
+            "或执行: $env:OPENAI_API_KEY='sk-xxx'"
+        )
     
-    默认支持 DeepSeek API（兼容 OpenAI 格式）。
-    也可通过环境变量切换为其他 OpenAI 兼容服务。
-    """
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
-    model = os.environ.get("OPENAI_MODEL", "deepseek-chat")
-    
-    if not api_key or api_key == "your-api-key-here":
-        # 模拟模式：返回一个假的 LLM，用于演示图结构
-        return None
-    
-    kwargs = {
-        "model": model,
-        "temperature": temperature,
-        "api_key": api_key,
-        "base_url": base_url,
-    }
-    
-    return ChatOpenAI(**kwargs)
+    return ChatOpenAI(
+        model=Config.OPENAI_MODEL,
+        temperature=temperature if temperature is not None else Config.LLM_TEMPERATURE,
+        max_tokens=Config.LLM_MAX_TOKENS,
+        api_key=Config.OPENAI_API_KEY,
+        base_url=Config.OPENAI_BASE_URL,
+    )
 
 
 # 全局 LLM 实例（带工具绑定）
-_llm = get_llm()
-if _llm is not None:
+try:
+    _llm = get_llm()
     _llm_with_tools = _llm.bind_tools(ALL_TOOLS)
-else:
+except RuntimeError:
+    _llm = None
     _llm_with_tools = None
 
 
 # ---------------------------------------------------------------------------
-# 1. Agent 主节点（对标 Claude Code 的 query.ts 核心 LLM 调用）
+# System Prompt 管理（对标 Claude Code 的系统提示词组装）
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT = """你是一个深度思考型 AI Agent（DeepThink Agent）。你的任务是通过推理和工具调用解决用户问题。
+AGENT_SYSTEM_PROMPT = """你是一个深度思考型 AI Agent（DeepThink Agent）。你的任务是通过推理和工具调用解决用户问题。
+
+## 可用工具
+- search_tool: 联网搜索（DuckDuckGo）
+- calc_tool: 数学计算
+- python_tool: Python 代码执行（受限沙箱）
+- git_clone_tool: Git 克隆远程仓库
+- read_file_tool: 读取本地文件
+- write_file_tool: 写入本地文件
+- list_dir_tool: 列出目录内容
+- bash_tool: 执行命令行（受安全限制）
+- rag_tool: 本地向量知识库检索
 
 ## 工作模式
 1. **简单问题**：直接回答，不需要工具。
-2. **复杂问题**：启动深度思考模式：
-   - 先进行 Chain-of-Thought 拆解（逐步分析）
-   - 必要时调用工具获取外部信息
-   - 对多路径问题使用 Tree-of-Thought 探索多个方案并评估
-
-## 可用工具
-- search_tool: 网络搜索（模拟）
-- calc_tool: 数学计算
-- python_tool: Python 代码执行
-- rag_tool: 本地知识库向量检索
+2. **复杂问题**：启动深度思考：
+   - 先拆解问题（Chain-of-Thought）
+   - 调用工具获取外部信息或执行操作
+   - 对多路径问题探索多个方案并评估
 
 ## 输出规则
-- 如果你需要调用工具，请直接输出工具调用（Tool Call）。
-- 如果你已完成推理，请直接给出最终答案，答案中应包含推理过程。
-- 判断问题是否需要深度思考（数学、逻辑、多步骤、需要外部知识）→ 使用工具；闲聊/简单事实 → 直接回答。
+- 如需调用工具，直接输出 tool_calls
+- 如已完成推理，直接给出最终答案（包含推理过程）
+- 对文件操作类请求，优先使用 read/write/list 工具
+- 对代码/计算类请求，优先使用 python_tool / calc_tool
+- 对信息检索类请求，优先使用 search_tool / rag_tool
 """
 
 
-def agent_node(state: AgentState) -> Dict[str, Any]:
-    """Agent 主决策节点
+def _record_usage(response, node_name: str, thread_id: str, latency_ms: int) -> None:
+    """记录 LLM 调用用量到数据库
     
-    对标 Claude Code 主循环中的 LLM 调用步骤：
-    messages[] -> LLM -> 响应（文本 或 tool_use）
+    LangChain 的 AIMessage 将 token usage 放在 response_metadata 中。
     """
+    try:
+        # 尝试从 response_metadata 提取 usage
+        meta = getattr(response, "response_metadata", {}) or {}
+        token_usage = meta.get("token_usage", {})
+        
+        # OpenAI 兼容格式
+        prompt_tokens = token_usage.get("prompt_tokens", 0)
+        completion_tokens = token_usage.get("completion_tokens", 0)
+        
+        # 备选：直接从 response 对象的 usage_metadata 读取（LangChain 新版本）
+        if not prompt_tokens and hasattr(response, "usage_metadata"):
+            um = response.usage_metadata or {}
+            prompt_tokens = um.get("input_tokens", 0)
+            completion_tokens = um.get("output_tokens", 0)
+        
+        if prompt_tokens or completion_tokens:
+            usage_db.record(
+                model=Config.OPENAI_MODEL,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                node_name=node_name,
+                thread_id=thread_id,
+                latency_ms=latency_ms,
+            )
+    except Exception:
+        pass  # 记录失败不影响主流程
+
+
+# ---------------------------------------------------------------------------
+# 1. Agent 主节点（对标 Claude Code query.ts 核心循环）
+# ---------------------------------------------------------------------------
+def agent_node(state: AgentState) -> Dict[str, Any]:
+    """Agent 主决策节点：接收用户输入或工具结果，决定下一步行动"""
     messages = state["messages"]
-    iteration = state.get("iteration", 0)
-    
-    # 上下文压缩提示（对标 Claude Code autoCompact）
-    if iteration >= 3 and len(messages) > 6:
-        compact_notice = SystemMessage(content="[系统提示] 对话轮次较多，请尽量简洁地利用已有信息，避免重复调用相同工具。")
-        messages = [messages[0], compact_notice] + messages[-4:]
+    thread_id = state.get("thread_id", "default")
     
     if _llm_with_tools is None:
-        # 模拟模式：演示图结构逻辑
-        return _simulate_agent_response(state)
+        raise RuntimeError("LLM 未初始化，请检查 API 配置")
+    
+    # 上下文压缩（生产级特性，对标 Claude Code autoCompact）
+    if Config.AGENT_ENABLE_CONTEXT_COMPACT and len(messages) > Config.AGENT_CONTEXT_COMPACT_THRESHOLD:
+        messages = _compact_context(messages)
     
     prompt = ChatPromptTemplate.from_messages([
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=AGENT_SYSTEM_PROMPT),
         MessagesPlaceholder(variable_name="messages"),
     ])
     
     chain = prompt | _llm_with_tools
+    start = time.time()
     response = chain.invoke({"messages": messages})
+    latency = int((time.time() - start) * 1000)
     
-    return {
-        "messages": [response],
-        "iteration": iteration + 1,
-    }
+    _record_usage(response, "agent", thread_id, latency)
+    
+    return {"messages": [response]}
 
 
-def _simulate_agent_response(state: AgentState) -> Dict[str, Any]:
-    """模拟 LLM 响应，用于无 API Key 时的结构演示
+def _compact_context(messages: List) -> List:
+    """上下文压缩：保留系统提示、最近对话，压缩中间历史"""
+    system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
+    other = [m for m in messages if not isinstance(m, SystemMessage)]
     
-    此模拟逻辑已针对 '搜索 Claude Code 源码并拉取' 场景做了增强，
-    可演示完整的搜索 -> 克隆工具链。
+    # 保留最近 4 条，压缩更早的
+    preserved = other[-4:] if len(other) >= 4 else other
+    compressed_count = len(other) - len(preserved)
+    
+    if compressed_count > 0:
+        compact_msg = SystemMessage(
+            content=f"[上下文压缩] 中间 {compressed_count} 条消息已摘要。保留最近 {len(preserved)} 条。"
+        )
+        return system_msgs + [compact_msg] + preserved
+    return messages
+
+
+# ---------------------------------------------------------------------------
+# 2. 权限检查节点（Human-in-the-loop，对标 Claude Code 权限系统）
+# ---------------------------------------------------------------------------
+def permission_node(state: AgentState) -> Dict[str, Any]:
+    """权限检查节点：对危险操作进行确认
+    
+    对标 Claude Code 的权限弹窗：危险变更弹出阻塞对话框，拒绝 = 程序退出。
+    在当前实现中，我们通过状态标记 `permission_granted` 控制。
     """
+    if not Config.AGENT_ENABLE_PERMISSION_CHECK:
+        return {"permission_granted": True}
+    
     last_msg = state["messages"][-1] if state["messages"] else None
-    last_content = last_msg.content if last_msg else ""
-    iteration = state.get("iteration", 0)
-    tool_results = state.get("tool_results", {})
+    if not (isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None)):
+        return {"permission_granted": True}
     
-    # 判断最后一条消息类型
-    is_human = isinstance(last_msg, HumanMessage) if last_msg else False
-    is_search_result = isinstance(last_msg, ToolMessage) and last_msg.name == "search_tool"
+    # 判断是否需要权限确认
+    sensitive_tools = {"bash_tool", "write_file_tool", "git_clone_tool", "python_tool"}
+    needs_confirm = any(
+        tc.get("name") in sensitive_tools for tc in last_msg.tool_calls
+    )
     
-    # ===== 智能场景：Claude Code 源码搜索 + 拉取 =====
-    # 场景1：用户要求搜索/分析 Claude Code 源码
-    if iteration == 0 and is_human and any(k in last_content.lower() for k in ["claude", "源码", "source", "code", "架构"]):
-        return {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{
-                    "id": f"call_search",
-                    "name": "search_tool",
-                    "args": {"query": "Claude Code source code gitee github"},
-                }]
-            )],
-            "iteration": iteration + 1,
-        }
+    if not needs_confirm:
+        return {"permission_granted": True}
     
-    # 场景2：搜索完成后，自动触发 git clone（演示搜索->克隆的完整链路）
-    if iteration == 1 and is_search_result:
-        # 搜索结果已返回，自动执行克隆（演示 Agent 工具链自动化）
-        return {
-            "messages": [AIMessage(
-                content="搜索完成，已发现 Claude Code 源码仓库，现在执行 git clone 拉取到本地...",
-                tool_calls=[{
-                    "id": f"call_clone",
-                    "name": "git_clone_tool",
-                    "args": {
-                        "repo_url": "https://gitee.com/wangzengliang1/claude-code-source-code.git",
-                        "target_dir": "claude-code-source-code-agent"
-                    },
-                }]
-            )],
-            "iteration": iteration + 1,
-        }
+    # 检查是否已有权限标记
+    if state.get("permission_granted"):
+        return {"permission_granted": True}
     
-    # 场景3：用户明确要求拉取/克隆（可能已搜索过或已知地址）
-    if iteration == 0 and is_human and any(k in last_content.lower() for k in ["clone", "拉取", "下载", "git clone"]):
-        # 尝试从用户输入中提取 URL
-        url = ""
-        for word in last_content.split():
-            if "gitee.com" in word or "github.com" in word:
-                url = word.strip("<>()'\"",)
-                break
-        if not url:
-            url = "https://gitee.com/wangzengliang1/claude-code-source-code.git"
-        return {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{
-                    "id": f"call_clone",
-                    "name": "git_clone_tool",
-                    "args": {"repo_url": url, "target_dir": "claude-code-source-code-agent"},
-                }]
-            )],
-            "iteration": iteration + 1,
-        }
-    
-    # ===== 通用模拟逻辑 =====
-    triggers_tool = is_human and any(k in last_content.lower() for k in [
-        "计算", "搜索", "rag", "代码", "math", "search", "python", "求", "多少",
-        "github", "git", "仓库", "repo",
-        "最新", "新闻", "资料", "信息", "什么", "介绍"
-    ])
-    triggers_tot = is_human and any(k in last_content.lower() for k in ["最优", "最好", "方案", "策略", "对比", "哪个", "路线", "比较", "选择"])
-    
-    if iteration == 0 and triggers_tot:
-        return {
-            "messages": [AIMessage(content="这个问题涉及多个可能的路径，我将启动 Tree-of-Thought 模式进行深度探索。")],
-            "need_tot": True,
-            "iteration": iteration + 1,
-        }
-    
-    if iteration == 0 and triggers_tool:
-        return {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{
-                    "id": f"call_{iteration}",
-                    "name": "search_tool",
-                    "args": {"query": last_content},
-                }]
-            )],
-            "iteration": iteration + 1,
-        }
-    
-    # 模拟最终回答
-    content = "[模拟模式回答] 基于当前上下文信息：\n\n"
-    if state.get("thoughts"):
-        content += "推理过程（CoT）：\n" + "\n".join(f"  {i+1}. {t}" for i, t in enumerate(state["thoughts"])) + "\n\n"
-    if state.get("candidates"):
-        content += f"经过 Tree-of-Thought 评估，从 {len(state['candidates'])} 个候选方案中选择了最优解。\n\n"
-    if tool_results:
-        content += "工具调用结果已纳入考量。\n\n"
-    content += "最终结论：这是一个演示输出。请配置 OPENAI_API_KEY 获取真实 LLM 推理能力。"
-    
+    # 生成权限请求消息
+    tool_names = [tc.get("name") for tc in last_msg.tool_calls if tc.get("name") in sensitive_tools]
+    confirm_msg = AIMessage(
+        content=f"[权限确认] Agent 请求执行敏感操作: {', '.join(tool_names)}。"
+                f"请在状态中设置 permission_granted=true 以继续，或终止任务。"
+    )
     return {
-        "messages": [AIMessage(content=content)],
-        "iteration": iteration + 1,
+        "messages": [confirm_msg],
+        "permission_granted": False,
     }
 
 
 # ---------------------------------------------------------------------------
-# 2. CoT 思考节点（Chain-of-Thought）
+# 3. CoT 思考节点（Chain-of-Thought）
 # ---------------------------------------------------------------------------
 COT_PROMPT = """请对以下问题进行 Chain-of-Thought（思维链）拆解。
 
 要求：
 1. 将问题分解为 2-4 个关键子问题
-2. 每个子问题写出你的初步分析
-3. 指出哪些问题需要调用工具才能解决
-4. 最后给出你的整体解题策略
+2. 每个子问题写出初步分析
+3. 指出哪些问题需要调用工具
+4. 给出整体解题策略
 
-请用中文回答，格式如下：
+格式：
 【子问题1】...
 【分析】...
-【子问题2】...
-【分析】...
-...
 【整体策略】...
 """
 
 
 def cot_node(state: AgentState) -> Dict[str, Any]:
-    """CoT 链式思考节点
-    
-    对应书中第5章的 Thinker（思考模块），但升级为 LLM 驱动的显式推理。
-    """
+    """CoT 链式思考节点"""
     user_msg = state["messages"][-1].content if state["messages"] else ""
+    thread_id = state.get("thread_id", "default")
     
     if _llm is None:
-        # 模拟模式
-        thoughts = [
-            f"理解用户意图：{user_msg[:30]}...",
-            "拆解为子问题并分析约束条件",
-            "判断需要调用外部工具获取信息",
-            "制定分步求解策略"
-        ]
-        return {
-            "thoughts": thoughts,
-            "messages": [AIMessage(content="[CoT] 已完成思维链拆解：\n" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(thoughts)))],
-        }
+        raise RuntimeError("LLM 未初始化")
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", COT_PROMPT),
-        ("human", "用户问题：{question}"),
+        ("human", "问题: {question}"),
     ])
     chain = prompt | _llm
+    
+    start = time.time()
     response = chain.invoke({"question": user_msg})
+    latency = int((time.time() - start) * 1000)
     
-    # 提取思考内容
-    thoughts = [line.strip() for line in response.content.split("\n") if line.strip() and not line.startswith("【")]
-    if not thoughts:
-        thoughts = [response.content]
+    _record_usage(response, "cot", thread_id, latency)
     
+    thoughts = [line.strip() for line in response.content.split("\n") if line.strip()]
     return {
         "thoughts": thoughts,
-        "messages": [AIMessage(content=f"[CoT 思考]\n{response.content}")],
+        "messages": [AIMessage(content=f"[CoT] {response.content}")],
     }
 
 
 # ---------------------------------------------------------------------------
-# 3. ToT 生成节点（Tree-of-Thought：生成多个候选方案）
+# 4. ToT 生成节点（Tree-of-Thought）
 # ---------------------------------------------------------------------------
-TOT_GENERATE_PROMPT = """你是一个 Tree-of-Thought 生成器。针对用户问题，请生成 3 个不同的解决方案/思路。
+TOT_PROMPT = """你是一个 Tree-of-Thought 生成器。针对用户问题，生成 3 个不同的解决方案。
 
 要求：
-1. 每个方案必须有明确的名称和核心逻辑
-2. 方案之间要有显著差异（不同角度、不同方法）
-3. 每个方案需列出优势和潜在风险
-4. 输出为结构化 JSON 数组格式
+1. 每个方案有明确名称和核心逻辑
+2. 方案之间有显著差异
+3. 列出优势和潜在风险
+4. 输出 JSON 数组格式
 
-输出格式示例：
+格式示例：
 [
   {"name": "方案A-xxx", "logic": "...", "pros": "...", "cons": "..."},
-  {"name": "方案B-xxx", "logic": "...", "pros": "...", "cons": "..."},
-  {"name": "方案C-xxx", "logic": "...", "pros": "...", "cons": "..."}
-]
-"""
+  ...
+]"""
 
 
 def tot_generate_node(state: AgentState) -> Dict[str, Any]:
-    """ToT 候选方案生成节点
-    
-    对标 Tree-of-Thought 论文中的候选生成步骤。
-    """
+    """ToT 候选方案生成节点"""
     user_msg = state["messages"][-1].content if state["messages"] else ""
+    thread_id = state.get("thread_id", "default")
     
     if _llm is None:
-        # 模拟模式：生成固定候选
-        candidates = [
-            {"name": "方案A-直接求解", "logic": "基于已有知识直接给出答案", "pros": "快速、简洁", "cons": "可能忽略边界情况", "score": 0.0},
-            {"name": "方案B-分步验证", "logic": "将问题拆解为多个步骤，逐一验证", "pros": "可靠性高、可回溯", "cons": "耗时较长", "score": 0.0},
-            {"name": "方案C-工具增强", "logic": "调用外部工具获取实时数据辅助决策", "pros": "信息最新、准确度高", "cons": "依赖工具可用性", "score": 0.0},
-        ]
-        return {
-            "candidates": candidates,
-            "messages": [AIMessage(content=f"[ToT] 已生成 {len(candidates)} 个候选方案：{', '.join(c['name'] for c in candidates)}")],
-        }
+        raise RuntimeError("LLM 未初始化")
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", TOT_GENERATE_PROMPT),
-        ("human", "用户问题：{question}"),
+        ("system", TOT_PROMPT),
+        ("human", "问题: {question}"),
     ])
     chain = prompt | _llm
-    response = chain.invoke({"question": user_msg})
     
-    # 尝试解析 JSON
+    start = time.time()
+    response = chain.invoke({"question": user_msg})
+    latency = int((time.time() - start) * 1000)
+    
+    _record_usage(response, "tot_generate", thread_id, latency)
+    
+    # 解析 JSON
     try:
         content = response.content
         if "```json" in content:
@@ -336,7 +292,7 @@ def tot_generate_node(state: AgentState) -> Dict[str, Any]:
         for c in candidates:
             c["score"] = 0.0
     except Exception:
-        candidates = [{"name": "方案1", "logic": response.content, "pros": "LLM 生成", "cons": "解析失败", "score": 0.0}]
+        candidates = [{"name": "默认方案", "logic": response.content, "pros": "LLM 生成", "cons": "解析失败", "score": 0.0}]
     
     return {
         "candidates": candidates,
@@ -345,7 +301,7 @@ def tot_generate_node(state: AgentState) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 4. 工具执行节点（对标 Claude Code 的 runTools / StreamingToolExecutor）
+# 5. 工具执行节点（生产级工具编排）
 # ---------------------------------------------------------------------------
 from langgraph.prebuilt import ToolNode
 
@@ -353,15 +309,11 @@ tool_executor = ToolNode(ALL_TOOLS)
 
 
 def tool_executor_node(state: AgentState) -> Dict[str, Any]:
-    """工具执行节点
-    
-    直接复用 LangGraph 的 ToolNode（生产级工具执行器）。
-    对标 Claude Code 中并行执行多个工具并收集 tool_result 的逻辑。
-    """
+    """工具执行节点：并行执行 LLM 请求的所有工具"""
     result = tool_executor.invoke(state)
     
     # 记录工具结果到状态
-    tool_results = state.get("tool_results", {})
+    tool_results = state.get("tool_results", {}).copy()
     for msg in result.get("messages", []):
         if isinstance(msg, ToolMessage):
             tool_results[msg.name] = msg.content
@@ -371,15 +323,10 @@ def tool_executor_node(state: AgentState) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 5. 评估节点（复用书中第9章语义相似度评估思想）
+# 6. 评估节点（复用书中第9章语义评估思想）
 # ---------------------------------------------------------------------------
 def evaluate_node(state: AgentState) -> Dict[str, Any]:
-    """候选方案评估节点
-    
-    复用书中第9章的语义评估思想：
-    - 用简单的启发式评分（无 sentence-transformers 时）
-    - 或用向量相似度计算方案与问题/目标的匹配度
-    """
+    """候选方案评估节点"""
     candidates = state.get("candidates", [])
     thoughts = state.get("thoughts", [])
     tool_results = state.get("tool_results", {})
@@ -387,87 +334,53 @@ def evaluate_node(state: AgentState) -> Dict[str, Any]:
     if not candidates:
         return {"best_candidate_idx": 0}
     
-    # 评分策略（启发式 + 工具结果加权）
     scores = []
     for i, cand in enumerate(candidates):
-        score = 0.5  # 基础分
-        
-        # 如果有工具结果，优先选择提及工具的候选
+        score = 0.5
         if tool_results and "工具" in cand.get("name", "") + cand.get("logic", ""):
             score += 0.3
-        
-        # 如果已经过 CoT，优先选择分步验证类方案
         if thoughts and ("分步" in cand.get("name", "") or "验证" in cand.get("logic", "")):
             score += 0.2
-        
-        # 随机扰动（模拟真实评估的不确定性）
-        score += __import__("random").uniform(-0.05, 0.05)
+        score += random.uniform(-0.05, 0.05)
         scores.append(score)
     
-    best_idx = int(__import__("numpy").argmax(scores)) if __import__("numpy") else scores.index(max(scores))
-    
-    # 更新候选分数
+    best_idx = int(np.argmax(scores))
     for i, cand in enumerate(candidates):
         cand["score"] = round(scores[i], 3)
     
     best = candidates[best_idx]
-    summary = f"[ToT 评估] 最佳方案：{best['name']}（得分: {best['score']}）\n逻辑: {best['logic'][:100]}..."
-    
     return {
         "best_candidate_idx": best_idx,
         "candidates": candidates,
-        "messages": [AIMessage(content=summary)],
+        "messages": [AIMessage(content=f"[ToT 评估] 最佳: {best['name']} (得分: {best['score']})")],
     }
 
 
 # ---------------------------------------------------------------------------
-# 6. 反思节点（Reflection）
+# 7. 反思节点（Reflection）
 # ---------------------------------------------------------------------------
 def reflect_node(state: AgentState) -> Dict[str, Any]:
-    """反思节点：判断当前答案是否足够好，还是需要重新思考
-    
-    对标 Claude Code 的停止条件判断和上下文回溯机制。
-    """
+    """反思节点：判断是否继续 ToT 或输出最终答案"""
     iteration = state.get("iteration", 0)
-    max_iter = state.get("max_iterations", 5)
+    max_iter = state.get("max_iterations", Config.AGENT_MAX_ITERATIONS)
     candidates = state.get("candidates", [])
     best_idx = state.get("best_candidate_idx", 0)
     tot_rounds = state.get("tot_rounds", 0)
     
-    # 停止条件1：总迭代超限
     if iteration >= max_iter:
-        return {
-            "messages": [AIMessage(content="[反思] 已达最大迭代次数，输出当前最佳答案。")],
-            "need_tot": False,
-            "tot_rounds": tot_rounds,
-        }
+        return {"messages": [AIMessage(content="[反思] 已达最大迭代次数，输出最佳答案。")], "need_tot": False}
     
-    # 停止条件2：ToT 轮次超限（最多2轮深度探索）
     if tot_rounds >= 2:
-        return {
-            "messages": [AIMessage(content="[反思] ToT 深度探索已完成两轮，输出当前最佳答案。")],
-            "need_tot": False,
-            "tot_rounds": tot_rounds,
-        }
+        return {"messages": [AIMessage(content="[反思] ToT 探索完成，输出最佳答案。")], "need_tot": False}
     
-    # 停止条件3：得分足够高
     if candidates and candidates[best_idx].get("score", 0) >= 0.8:
-        return {
-            "messages": [AIMessage(content=f"[反思] 方案 '{candidates[best_idx]['name']}' 得分足够高，可以输出最终答案。")],
-            "need_tot": False,
-            "tot_rounds": tot_rounds,
-        }
+        return {"messages": [AIMessage(content=f"[反思] 方案得分足够高，输出最终答案。")], "need_tot": False}
     
-    # 需要继续思考
-    return {
-        "messages": [AIMessage(content="[反思] 当前方案评分不够理想，需要补充信息或重新生成候选方案。")],
-        "need_tot": True,
-        "tot_rounds": tot_rounds + 1,
-    }
+    return {"messages": [AIMessage(content="[反思] 评分不够理想，补充信息后重新生成。")], "need_tot": True, "tot_rounds": tot_rounds + 1}
 
 
 # ---------------------------------------------------------------------------
-# 7. 最终答案节点
+# 8. 最终答案节点
 # ---------------------------------------------------------------------------
 def final_answer_node(state: AgentState) -> Dict[str, Any]:
     """最终答案生成节点"""
@@ -475,36 +388,32 @@ def final_answer_node(state: AgentState) -> Dict[str, Any]:
     candidates = state.get("candidates", [])
     best_idx = state.get("best_candidate_idx", 0)
     tool_results = state.get("tool_results", {})
+    thread_id = state.get("thread_id", "default")
     
     if _llm is None:
-        # 模拟模式：组装最终输出
-        parts = ["## 最终回答\n"]
-        if thoughts:
-            parts.append("### 推理过程（CoT）\n" + "\n".join(f"- {t}" for t in thoughts) + "\n")
-        if candidates and 0 <= best_idx < len(candidates):
-            best = candidates[best_idx]
-            parts.append(f"### 选定方案（ToT）\n**{best['name']}**\n- 逻辑: {best['logic']}\n- 优势: {best['pros']}\n- 风险: {best['cons']}\n")
-        if tool_results:
-            parts.append("### 工具调用结果\n" + "\n".join(f"- {k}: {v[:100]}..." for k, v in tool_results.items()) + "\n")
-        parts.append("\n*注：当前为模拟模式，配置 OPENAI_API_KEY 后可获得真实 LLM 生成的深度回答。*")
-        
-        return {"messages": [AIMessage(content="\n".join(parts))]}
+        raise RuntimeError("LLM 未初始化")
     
-    # 真实 LLM 模式：组装上下文并生成最终答案
-    context = ""
+    context_parts = []
     if thoughts:
-        context += "思考过程:\n" + "\n".join(thoughts) + "\n\n"
+        context_parts.append("思考过程:\n" + "\n".join(thoughts))
     if candidates and 0 <= best_idx < len(candidates):
-        context += f"选定方案: {json.dumps(candidates[best_idx], ensure_ascii=False)}\n\n"
+        context_parts.append(f"选定方案: {json.dumps(candidates[best_idx], ensure_ascii=False)}")
     if tool_results:
-        context += "工具结果:\n" + json.dumps(tool_results, ensure_ascii=False) + "\n\n"
+        context_parts.append("工具结果:\n" + json.dumps(tool_results, ensure_ascii=False, indent=2))
+    
+    context = "\n\n".join(context_parts) or "无额外上下文"
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "基于以下分析和工具结果，给出清晰、完整的最终答案。用中文回答。"),
-        ("human", "分析上下文:\n{context}\n\n请给出最终回答。"),
+        ("human", "上下文:\n{context}\n\n请给出最终回答。"),
     ])
     chain = prompt | _llm
+    
+    start = time.time()
     response = chain.invoke({"context": context})
+    latency = int((time.time() - start) * 1000)
+    
+    _record_usage(response, "final", thread_id, latency)
     
     return {"messages": [AIMessage(content=response.content)]}
 
@@ -512,40 +421,35 @@ def final_answer_node(state: AgentState) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 路由函数（条件边）
 # ---------------------------------------------------------------------------
-def route_after_agent(state: AgentState) -> str:
-    """Agent 节点后的路由决策
-    
-    对标 Claude Code 中判断 stop_reason == "tool_use" 的核心逻辑。
-    """
+def route_after_agent(state: AgentState) -> Literal["permission", "tot", "evaluate", "final", "end"]:
+    """Agent 节点后的路由决策"""
     last_msg = state["messages"][-1] if state["messages"] else None
     
-    # 如果最后一条是 AI 消息且包含 tool_calls，则去执行工具
     if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
-        return "tools"
+        return "permission"
     
-    # 如果标记了 need_tot 且还没有生成候选，去 ToT
     if state.get("need_tot") and not state.get("candidates"):
         return "tot"
     
-    # 如果标记了 need_tot 且已有候选，去反思/评估
     if state.get("need_tot") and state.get("candidates"):
         return "evaluate"
     
-    # 如果已有思考但还没最终输出，去最终答案
-    if state.get("thoughts") or state.get("candidates"):
+    if state.get("thoughts") or state.get("candidates") or state.get("tool_results"):
         return "final"
     
-    # 否则直接结束
     return "end"
 
 
-def route_after_reflect(state: AgentState) -> str:
+def route_after_permission(state: AgentState) -> Literal["tools", "agent", "end"]:
+    """权限节点后的路由"""
+    if state.get("permission_granted"):
+        last_msg = state["messages"][-1] if state["messages"] else None
+        if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
+            return "tools"
+        return "agent"
+    return "end"
+
+
+def route_after_reflect(state: AgentState) -> Literal["tot", "final"]:
     """反思节点后的路由"""
-    if state.get("need_tot"):
-        return "tot"
-    return "final"
-
-
-def route_after_cot(state: AgentState) -> str:
-    """CoT 后的路由：返回 Agent 进行下一步决策"""
-    return "agent"
+    return "final" if not state.get("need_tot") else "tot"
