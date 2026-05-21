@@ -18,7 +18,12 @@ class Config:
     # --- LLM 配置 ---
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "deepseek-chat")
+    
+    # 主模型（高质量、慢、贵）— 用于复杂决策、任务分解、结果聚合
+    LLM_PRO_MODEL: str = os.getenv("LLM_PRO_MODEL", "deepseek-v4-pro")
+    # 子模型（快、便宜）— 用于简单任务、工具执行、格式化
+    LLM_FLASH_MODEL: str = os.getenv("LLM_FLASH_MODEL", "deepseek-v4-flash")
+    
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.3"))
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
@@ -48,7 +53,8 @@ class Config:
     def to_dict(cls) -> dict:
         """导出配置字典（隐藏密钥）"""
         return {
-            "model": cls.OPENAI_MODEL,
+            "pro_model": cls.LLM_PRO_MODEL,
+            "flash_model": cls.LLM_FLASH_MODEL,
             "base_url": cls.OPENAI_BASE_URL,
             "temperature": cls.LLM_TEMPERATURE,
             "max_tokens": cls.LLM_MAX_TOKENS,

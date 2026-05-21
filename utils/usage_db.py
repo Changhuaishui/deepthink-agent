@@ -170,11 +170,13 @@ class UsageDB:
         """估算单次调用成本（USD）"""
         pricing = {
             "deepseek-chat": {"input": 0.00014, "output": 0.00028},        # DeepSeek V3
+            "deepseek-v4-pro": {"input": 0.00174, "output": 0.00348},      # DeepSeek V4 Pro
+            "deepseek-v4-flash": {"input": 0.00014, "output": 0.00028},    # DeepSeek V4 Flash
             "deepseek-reasoner": {"input": 0.00055, "output": 0.00219},   # DeepSeek R1
             "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
             "gpt-4o": {"input": 0.0025, "output": 0.01},
         }
-        p = pricing.get(model, pricing["deepseek-chat"])
+        p = pricing.get(model, pricing["deepseek-v4-flash"])
         return (prompt_tokens / 1000) * p["input"] + (completion_tokens / 1000) * p["output"]
 
     def _row_to_record(self, row: dict) -> UsageRecord:

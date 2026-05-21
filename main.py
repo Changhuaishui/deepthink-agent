@@ -29,6 +29,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # 必须先导入 config 以加载 .env
 from config import Config
+
+# 应用 DeepSeek reasoning_content 兼容性补丁（必须在 langchain_openai 被使用前）
+import utils.deepseek_patch  # noqa: F401
+
 from graph import graph_app
 from state import AgentState
 from utils.usage_db import usage_db
@@ -64,7 +68,8 @@ def run_agent(question: str, thread_id: str = "demo") -> None:
     print("=" * 60)
     print(f"🧠 DeepThink Agent 启动")
     print(f"📨 问题: {question}")
-    print(f"🔧 模型: {Config.OPENAI_MODEL} @ {Config.OPENAI_BASE_URL}")
+    print(f"🔧 模型: Pro={Config.LLM_PRO_MODEL} | Flash={Config.LLM_FLASH_MODEL}")
+    print(f"   地址: {Config.OPENAI_BASE_URL}")
     print("=" * 60)
     
     printed_count = 0
@@ -75,6 +80,10 @@ def run_agent(question: str, thread_id: str = "demo") -> None:
         
         for msg in new_messages:
             msg_type = type(msg).__name__
+            
+            # 获取模型类型（Pro/Flash）
+            model_type = msg.additional_kwargs.get("model_type", "")
+            model_tag = f"[{model_type.upper()}] " if model_type else ""
             
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 for tc in msg.tool_calls:
@@ -112,7 +121,7 @@ def run_agent(question: str, thread_id: str = "demo") -> None:
                     prefix = "🪞"
                 elif "[权限确认" in content:
                     prefix = "🔒"
-                print(f"\n{prefix} {content}")
+                print(f"\n{prefix} {model_tag}{content}")
         
         # 纯状态更新
         if not new_messages:
@@ -128,6 +137,18 @@ def run_agent(question: str, thread_id: str = "demo") -> None:
               f"Token: {summary['total_tokens']} | "
               f"成本: ${summary['total_cost_usd']:.6f} | "
               f"平均延迟: {summary['avg_latency_ms']:.0f}ms")
+        
+        # 区分 Pro/Flash 用量
+        records = usage_db.query_recent(limit=50)
+        pro_calls = [r for r in records if r.thread_id == thread_id and "(pro)" in r.node_name]
+        flash_calls = [r for r in records if r.thread_id == thread_id and "(flash)" in r.node_name]
+        if pro_calls or flash_calls:
+            pro_cost = sum(r.cost_usd for r in pro_calls)
+            flash_cost = sum(r.cost_usd for r in flash_calls)
+            pro_tokens = sum(r.total_tokens for r in pro_calls)
+            flash_tokens = sum(r.total_tokens for r in flash_calls)
+            print(f"   Pro:  {len(pro_calls)}次 {pro_tokens}tokens ${pro_cost:.6f}")
+            print(f"   Flash:{len(flash_calls)}次 {flash_tokens}tokens ${flash_cost:.6f}")
     print("=" * 60)
 
 
