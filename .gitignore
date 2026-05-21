@@ -20,6 +20,13 @@ data/
 *.sqlite
 *.sqlite3
 
+# AI 生成文件（禁止入 Git）
+AGENT.MD
+CLAUDE.MD
+*.ai.md
+.cursorrules
+.copilotignore
+
 # IDE
 .vscode/
 .idea/
