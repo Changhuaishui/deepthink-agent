@@ -1,113 +1,90 @@
 # DeepThink Agent
 
-一个基于 **LangGraph** + **CoT** + **ToT** + **真实工具调用** 的生产级 AI Agent。
-
-> 本项目同时对照《AI大模型开发实战》教材与 Claude Code 生产源码架构构建，
-> 目标是用最清晰的代码展示：一个现代 Agent 应该如何设计、如何运行、如何扩展。
-
----
-
-## 一、这个项目能做什么
-
-简单说：你扔给它一个问题，它会自己判断——是直接回答，还是上网搜，还是写代码算，还是读文件找答案。
-
-### 实际场景示例
-
-| 你说 | 它会做什么 |
-|------|-----------|
-| "搜索最新的 AI Agent 框架" | 🔍 调用 `search_tool` 真实联网搜索 |
-| "计算 2024 的平方根" | 🔢 调用 `calc_tool` 精确计算 |
-| "用 Python 画个正弦波" | 🐍 调用 `python_tool` 沙箱执行代码 |
-| "列出当前目录有哪些文件" | 📁 调用 `list_dir_tool` 真实读取文件系统 |
-| "拉取 Claude Code 源码到本地" | 📦 调用 `git_clone_tool` 执行 `git clone` |
-
-所有工具都是**真实可用**，不是假数据。
+> 2025 年初，我翻完一本叫《AI大模型开发实战》的教材，又啃了几天 Claude Code 泄露的源码。书里的代码能跑，但离"生产级"差得远；Claude Code 的架构很扎实，但源码是 TypeScript，而且塞满了 Anthropic 内部的业务逻辑，没法直接拿来学。
+> 
+> 我就想着，能不能用 Python + LangGraph 把这两份资料的核心思想串起来，搭一个自己能看懂、能改、能扩展的 Agent 框架。这个项目就是结果。
 
 ---
 
-## 二、技术栈
+## 这个项目从哪来
 
-| 层级 | 技术 | 用途 |
-|------|------|------|
-| 框架核心 | `langgraph` | 状态图编排，节点与边的可视化循环 |
-| LLM 接口 | `langchain-openai` | 兼容 OpenAI API 格式（DeepSeek/OpenAI/任意兼容） |
-| 向量检索 | `faiss-cpu` + `sentence-transformers` | 复用教材第4章 RAG 技术 |
-| 联网搜索 | `ddgs` (DuckDuckGo) | 真实联网搜索，无需 API Key |
-| 配置管理 | `python-dotenv` | `.env` 文件管理敏感配置 |
-| 用量记录 | `sqlite3` (内置) | 持久化 Token/成本数据库 |
+一开始我只是想复现书里的 ReAct Agent。但跑了几遍之后发现几个问题：
+
+- 书里用的是 LangChain 旧版的 `initialize_agent`，已经不太够用了
+- 没有显式的 CoT/ToT 实现，推理过程黑盒
+- 工具都是模拟的，search 返回的是写死的字典，不是真实搜索
+- 没有成本追踪，跑了多少 Token、花了多少钱，完全不知道
+
+我又去看了 Claude Code 的源码。它的核心循环很清楚：`messages[] → LLM → 判断是否需要工具 → 执行 → 循环`。但源码是 TypeScript，而且捆了一堆内部基础设施，初学者根本读不动。
+
+所以我决定自己写一个——把 Claude Code 的架构思想，用 Python + LangGraph 重新实现一遍，同时把书里能用的部分（RAG、评估方法）接进来。
+
+**一句话总结：** 这是一个"教材理论 + 生产架构"的混血项目，目标是让 Agent 的每个决策步骤都看得见、摸得着。
 
 ---
 
-## 三、项目结构
+## 它能干什么
+
+你扔一个问题给它，它会自己判断：直接回答？上网搜？写代码算？读本地文件？还是启动深度思考模式？
+
+我列了几个实际跑通的例子：
+
+| 输入 | 它的反应 |
+|------|---------|
+| "搜索最新的 AI Agent 框架" | 调用 `search_tool`，走 DuckDuckGo 真实搜索 |
+| "计算 2024 的平方根" | 调用 `calc_tool`，安全求值 |
+| "用 Python 画个正弦波" | 调用 `python_tool`，沙箱执行 |
+| "当前目录有哪些文件" | 调用 `list_dir_tool`，真实读文件系统 |
+| "拉取 Claude Code 源码" | 调用 `git_clone_tool`，执行 `git clone` |
+| "对比两个方案哪个更好" | 启动 ToT 模式，生成多个候选并评估 |
+
+注意，所有工具都是真实调用，不是假数据。
+
+---
+
+## 技术栈的选择
+
+我没有选最潮的，只选了最贴合这个目标的：
+
+- **`langgraph`** — 状态图编排。比起传统链式 Agent，图结构让循环、分支、条件跳转变得显式，调试时能看清每一步走了哪条边。
+- **`langchain-openai`** — 兼容 OpenAI API 格式。我实际接的是 DeepSeek，但换 OpenAI、SiliconFlow 只需要改 `.env` 里的 base_url。
+- **`faiss-cpu` + `sentence-transformers`** — 复用书里第 4 章的 RAG 代码，把 Embedding + 向量检索接成 Agent 的一个工具。
+- **`ddgs`** — DuckDuckGo 搜索，免费，不用申请 API Key。
+- **`sqlite3`** — 内置模块，记录每次 LLM 调用的 Token 和成本，省得再装一个数据库。
+
+---
+
+## 项目结构
 
 ```
 deepthink-agent/
-├── .env                          # API 配置（gitignored，安全）
-├── .gitignore                    # 忽略规则
-├── config.py                     # 统一配置中心
-├── main.py                       # CLI 入口
-├── graph.py                      # LangGraph 状态图定义
-├── state.py                      # AgentState 状态容器
-├── requirements.txt              # 依赖清单
-├── nodes/                        # 节点目录（Agent 的大脑）
-│   └── nodes.py                  # 8 个核心节点 + 路由函数
-├── tools/                        # 工具目录（Agent 的手脚）
-│   └── tools.py                  # 9 个生产级工具
-└── utils/                        # 工具箱（辅助模块）
-    ├── compact.py                # 上下文压缩算法
-    ├── cost_tracker.py           # 成本计算器
-    └── usage_db.py               # SQLite 持久化用量记录
+├── .env                  # API Key，只在本地，不入 Git
+├── config.py             # 配置中心，自动读 .env
+├── graph.py              # 状态图：节点和边的连接关系
+├── main.py               # CLI 入口
+├── state.py              # 状态容器
+├── nodes/
+│   └── nodes.py          # 8 个节点：Agent / 权限 / CoT / ToT / 工具执行 / 评估 / 反思 / 最终回答
+├── tools/
+│   └── tools.py          # 9 个工具
+└── utils/
+    ├── compact.py        # 上下文压缩
+    ├── cost_tracker.py   # 成本计算
+    └── usage_db.py       # SQLite 持久化用量
 ```
 
 ---
 
-## 四、快速开始
+## 核心设计
 
-### 1. 安装依赖
-
-```bash
-cd deepthink-agent
-pip install -r requirements.txt
-```
-
-### 2. 配置 API
-
-编辑 `.env` 文件（已预填 DeepSeek，可直接用）：
-
-```env
-OPENAI_API_KEY=sk-your-key
-OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-chat
-```
-
-### 3. 运行
-
-```bash
-# 单次提问
-python main.py -q "什么是 LangGraph"
-
-# 交互模式（推荐）
-python main.py -i
-
-# 批量演示
-python main.py -d
-
-# 查看用量统计
-python main.py -u
-```
-
----
-
-## 五、核心设计
-
-### 状态图架构
+### 状态图
 
 ```
 用户输入
     │
     ▼
 ┌─────────┐
-│ agent   │ ← LLM 主决策（bind_tools + 上下文压缩）
+│ agent   │ ← LLM 主决策，bind_tools + 上下文压缩
 └────┬────┘
      │
 ┌────┼────┬──────────┐
@@ -121,52 +98,54 @@ permission  tot  evaluate  final/end
   tools（并行执行）
       │
       ▼
-  agent（循环回主决策）
+  agent（循环）
 ```
 
-**核心循环**：`agent → permission → tools → agent → ...`
+核心循环是 `agent → permission → tools → agent → ...`，和 Claude Code 的 `messages[] → LLM → tool_use? → 执行 → 循环` 本质一样。
 
-### 对标 Claude Code
+### 权限节点
 
-| Claude Code 源码 | 本项目对应 | 说明 |
-|-----------------|-----------|------|
-| `src/query.ts` | `nodes/nodes.py` 的 `agent_node` | 核心 LLM 调用循环 |
-| `src/services/tools/toolOrchestration.ts` | `tool_executor_node` | 并行工具执行 |
-| `src/services/compact/autoCompact.ts` | `_compact_context()` | 上下文压缩 |
-| `src/cost-tracker.ts` | `utils/usage_db.py` | Token/成本记录 |
-| 权限弹窗系统 | `permission_node` | 敏感操作确认 |
+我加了一个 `permission_node`，对标 Claude Code 的权限弹窗。如果 Agent 要执行敏感操作（写文件、执行命令、git clone），会先停下来等确认。目前是通过状态标记控制，后续可以扩展成真正的人机交互确认。
+
+### 用量记录
+
+每次 LLM 调用后，自动往 SQLite 里写一条记录：时间、模型、prompt tokens、completion tokens、成本、延迟。跑完 `python main.py -u` 就能看到花了多少钱。
 
 ---
 
-## 六、用量记录
-
-每次 LLM 调用都会自动记录到本地 SQLite 数据库：
+## 快速开始
 
 ```bash
-# 查看最近 7 天用量
-python main.py -u
+pip install -r requirements.txt
+```
 
-# 输出示例
-📊 全局用量统计
-   统计周期: 最近 7 天
-   总调用次数: 6
-   总 Tokens: 7351
-   总成本: $0.001112
+编辑 `.env`：
+
+```env
+OPENAI_API_KEY=sk-your-key
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_MODEL=deepseek-chat
+```
+
+运行：
+
+```bash
+# 单次提问
+python main.py -q "什么是 LangGraph"
+
+# 交互模式
+python main.py -i
+
+# 查看用量
+python main.py -u
 ```
 
 ---
 
-## 七、学习路径
+## 写在后面
 
-如果你想深入理解这个项目：
+做这个项目的时候，我最大的感受是：**Agent 的核心不是"有多少工具"，而是"循环是否可控"**。Claude Code 的源码有 50 万行，但核心循环就那么几十行：发消息、等响应、判断要不要调工具、调完再发。其余的都是包裹层——权限、流式、压缩、成本、子代理。
 
-1. **读 `graph.py`** — 先看整体流程图，理解节点和边怎么连接
-2. **读 `nodes/nodes.py`** — 再看每个节点的具体逻辑
-3. **读 `tools/tools.py`** — 最后看工具的注册和实现
-4. **对照 Claude Code 源码** — 打开 `claude-code-source-code/src/query.ts`，对比主循环设计
+我把这个循环用 LangGraph 的节点和边显式画出来之后，调试轻松了很多。以前用黑盒 `initialize_agent`，出了问题不知道卡在哪一步；现在看 `graph.py` 就能知道数据从哪个节点流向哪个节点。
 
----
-
-## 八、协议
-
-MIT License — 随意使用、修改、分发。
+如果你也想搭一个自己的 Agent，我建议不要从工具开始。先把主循环跑通，再一颗一颗往上加工具。
