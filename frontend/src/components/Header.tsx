@@ -1,11 +1,19 @@
+/**
+ * Header 组件 —— 顶部状态栏
+ *
+ * 职责：
+ * - 展示项目名称与品牌标识
+ * - 实时显示 Agent 运行状态（待机 / 运行中 / 活跃节点）
+ * - 提供统计面板开关和清空对话按钮
+ */
 import { motion } from "framer-motion";
 import { BrainCircuit, Activity, BarChart3, Trash2 } from "lucide-react";
 
 interface HeaderProps {
-  isRunning: boolean;
-  activeNode: string | null;
-  onToggleStats: () => void;
-  onClear: () => void;
+  isRunning: boolean;        // Agent 是否正在执行
+  activeNode: string | null; // 当前活跃的 LangGraph 节点名称
+  onToggleStats: () => void; // 切换统计面板显隐
+  onClear: () => void;       // 清空消息流
 }
 
 export default function Header({ isRunning, activeNode, onToggleStats, onClear }: HeaderProps) {
@@ -16,7 +24,7 @@ export default function Header({ isRunning, activeNode, onToggleStats, onClear }
       transition={{ duration: 0.5 }}
       className="flex h-14 items-center justify-between border-b border-obsidian-border bg-obsidian-panel px-6"
     >
-      {/* Left: Title */}
+      {/* 左侧：项目标识 */}
       <div className="flex items-center gap-3">
         <BrainCircuit className="h-5 w-5 text-accent-flash" />
         <h1 className="font-display text-xl tracking-wide text-ivory">
@@ -27,7 +35,7 @@ export default function Header({ isRunning, activeNode, onToggleStats, onClear }
         </span>
       </div>
 
-      {/* Center: Status */}
+      {/* 中间：实时状态指示器 */}
       <div className="flex items-center gap-4">
         {isRunning && (
           <motion.div
@@ -35,6 +43,7 @@ export default function Header({ isRunning, activeNode, onToggleStats, onClear }
             animate={{ opacity: 1 }}
             className="flex items-center gap-2"
           >
+            {/* 脉冲动画圆点 */}
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-flash opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-flash" />
@@ -52,7 +61,7 @@ export default function Header({ isRunning, activeNode, onToggleStats, onClear }
         )}
       </div>
 
-      {/* Right: Actions */}
+      {/* 右侧：操作按钮 */}
       <div className="flex items-center gap-2">
         <button
           onClick={onToggleStats}
