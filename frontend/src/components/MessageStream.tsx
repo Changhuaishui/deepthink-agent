@@ -1,3 +1,21 @@
+/**
+ * MessageStream 组件 —— 右侧消息流展示面板
+ *
+ * 职责：
+ * - 按时间顺序展示所有类型的消息（用户、AI、工具调用、工具结果、思考过程、候选方案）
+ * - 每条消息根据类型渲染不同的视觉样式（颜色、图标、布局）
+ * - 新消息自动滚动到底部
+ * - 空状态时展示引导提示
+ *
+ * 消息类型映射：
+ * - user        → 右侧气泡，用户输入
+ * - assistant   → 左侧气泡，AI 回复（带 Pro/Flash 模型标签）
+ * - tool_call   → 左侧卡片，展示工具名称与参数
+ * - tool_result → 左侧卡片，展示执行结果（成功/失败）
+ * - thought     → 左侧卡片，CoT/ToT/Reflect 思考内容
+ * - candidate   → 左侧卡片，ToT 候选方案列表（高亮最佳方案）
+ * - system      → 居中提示，系统级通知
+ */
 import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -13,17 +31,23 @@ import {
 import type { StreamMessage } from "../types/agent";
 
 interface MessageStreamProps {
-  messages: StreamMessage[];
-  activeNode: string | null;
+  messages: StreamMessage[];      // 消息列表
+  activeNode: string | null;      // 当前活跃节点（用于展示"执行中"提示）
 }
 
+/**
+ * 单条消息气泡组件
+ * 根据 msg.type 选择对应的渲染策略
+ */
 function MessageBubble({ msg }: { msg: StreamMessage }) {
+  // Framer Motion 入场动画配置
   const variants = {
     hidden: { opacity: 0, y: 12, scale: 0.98 },
     visible: { opacity: 1, y: 0, scale: 1 },
   };
 
   switch (msg.type) {
+    // ========== 用户消息 ==========
     case "user":
       return (
         <motion.div
@@ -44,6 +68,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
         </motion.div>
       );
 
+    // ========== AI 助手消息 ==========
     case "assistant": {
       const modelType = (msg.payload?.model_type as string) || "";
       const isPro = modelType === "pro";
@@ -66,6 +91,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
               <span className="text-[10px] font-medium uppercase tracking-wider text-ivory-muted">
                 Agent
               </span>
+              {/* 模型类型标签：Pro 为琥珀金，Flash 为青绿 */}
               {modelType && (
                 <span
                   className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
@@ -86,6 +112,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
       );
     }
 
+    // ========== 工具调用请求 ==========
     case "tool_call": {
       const tc = msg.payload as { tool_name?: string; arguments?: Record<string, unknown> };
       return (
@@ -115,6 +142,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
       );
     }
 
+    // ========== 工具执行结果 ==========
     case "tool_result": {
       const tr = msg.payload as { tool_name?: string; ok?: boolean; data?: unknown; error?: string };
       const ok = tr.ok ?? true;
@@ -157,6 +185,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
       );
     }
 
+    // ========== 思考过程（CoT / ToT / Reflect）==========
     case "thought": {
       const th = msg.payload as { thought_type?: string };
       const typeLabel =
@@ -188,6 +217,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
       );
     }
 
+    // ========== ToT 候选方案 ==========
     case "candidate": {
       const cand = msg.payload as { candidates?: Array<Record<string, unknown>>; best_idx?: number };
       return (
@@ -231,6 +261,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
       );
     }
 
+    // ========== 系统通知 ==========
     case "system":
       return (
         <motion.div
@@ -254,6 +285,9 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
 export default function MessageStream({ messages, activeNode }: MessageStreamProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * 新消息到达时自动滚动到底部
+   */
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -263,6 +297,7 @@ export default function MessageStream({ messages, activeNode }: MessageStreamPro
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
       <AnimatePresence mode="popLayout">
+        {/* 空状态引导 */}
         {messages.length === 0 && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -293,10 +328,14 @@ export default function MessageStream({ messages, activeNode }: MessageStreamPro
             </div>
           </motion.div>
         )}
+
+        {/* 消息列表 */}
         <div className="flex flex-col gap-3">
           {messages.map((msg) => (
             <MessageBubble key={msg.id} msg={msg} />
           ))}
+
+          {/* 运行中指示器 */}
           {activeNode && (
             <motion.div
               initial={{ opacity: 0 }}

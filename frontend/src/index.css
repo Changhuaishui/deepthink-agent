@@ -1,8 +1,22 @@
+/**
+ * 全局样式文件 —— Obsidian Control Deck 主题
+ *
+ * 内容：
+ * 1. Tailwind 指令（base / components / utilities）
+ * 2. CSS 变量定义（色彩系统）
+ * 3. 全局重置（html/body/#root 高度、字体、抗锯齿）
+ * 4. 自定义滚动条样式
+ * 5. 文字选中高亮色
+ * 6. 颗粒噪点纹理（grain-overlay）
+ * 7. 发光工具类（glow-*）
+ * 8. 动画关键帧（borderRotate）
+ */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Obsidian Control Deck — Global Styles */
+/* Obsidian Control Deck — CSS 变量 */
 :root {
   --color-bg: #070709;
   --color-panel: #0f1016;
@@ -17,6 +31,7 @@
   --color-tool: #fdcb6e;
 }
 
+/* 全局重置 */
 html, body, #root {
   height: 100%;
   background-color: var(--color-bg);
@@ -26,7 +41,7 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
+/* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -41,18 +56,18 @@ html, body, #root {
   background: var(--color-muted);
 }
 
-/* Selection */
+/* 文字选中高亮 */
 ::selection {
   background: rgba(0, 212, 170, 0.3);
   color: var(--color-ivory);
 }
 
-/* Typography utilities */
+/* 显示字体工具类 */
 .font-display {
   font-family: "Oranienbaum", serif;
 }
 
-/* Grain overlay */
+/* 颗粒噪点纹理叠加层 */
 .grain-overlay::before {
   content: "";
   position: fixed;
@@ -66,7 +81,7 @@ html, body, #root {
   z-index: 9999;
 }
 
-/* Glow utilities */
+/* 发光效果工具类 —— 用于节点高亮 */
 .glow-pro {
   box-shadow: 0 0 12px rgba(245, 166, 35, 0.25);
 }
@@ -83,7 +98,7 @@ html, body, #root {
   box-shadow: 0 0 12px rgba(253, 203, 110, 0.25);
 }
 
-/* Animated border gradient */
+/* 边框旋转动画（预留用于装饰性元素） */
 @keyframes borderRotate {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

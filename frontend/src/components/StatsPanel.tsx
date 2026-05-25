@@ -1,13 +1,23 @@
+/**
+ * StatsPanel 组件 —— 右侧滑出式统计面板
+ *
+ * 职责：
+ * - 展示当前会话的迭代次数、ToT 轮次
+ * - 展示后端返回的用量统计（调用次数、Token、成本、延迟）
+ * - Framer Motion 滑入/滑出动画
+ *
+ * 触发方式：Header 中的"统计"按钮
+ */
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Coins, Clock, Zap } from "lucide-react";
 import type { UsagePayload } from "../types/agent";
 
 interface StatsPanelProps {
-  open: boolean;
-  onClose: () => void;
-  usage: UsagePayload | null;
-  iteration: number;
-  totRounds: number;
+  open: boolean;               // 面板是否打开
+  onClose: () => void;         // 关闭回调
+  usage: UsagePayload | null;  // 用量数据
+  iteration: number;           // 当前迭代次数
+  totRounds: number;           // ToT 轮次
 }
 
 export default function StatsPanel({ open, onClose, usage, iteration, totRounds }: StatsPanelProps) {
@@ -15,7 +25,7 @@ export default function StatsPanel({ open, onClose, usage, iteration, totRounds 
     <AnimatePresence>
       {open && (
         <>
-          {/* Backdrop */}
+          {/* 背景遮罩：点击可关闭 */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -23,7 +33,7 @@ export default function StatsPanel({ open, onClose, usage, iteration, totRounds 
             onClick={onClose}
             className="fixed inset-0 z-40 bg-black/40"
           />
-          {/* Panel */}
+          {/* 面板主体 */}
           <motion.div
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
@@ -31,6 +41,7 @@ export default function StatsPanel({ open, onClose, usage, iteration, totRounds 
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
             className="fixed right-0 top-0 z-50 h-full w-80 border-l border-obsidian-border bg-obsidian-panel shadow-2xl"
           >
+            {/* 面板头部 */}
             <div className="flex h-14 items-center justify-between border-b border-obsidian-border px-5">
               <h2 className="text-xs font-semibold uppercase tracking-widest text-ivory-muted">
                 执行统计
@@ -44,7 +55,7 @@ export default function StatsPanel({ open, onClose, usage, iteration, totRounds 
             </div>
 
             <div className="space-y-4 p-5">
-              {/* Iteration Info */}
+              {/* 当前会话状态卡片 */}
               <div className="rounded-lg border border-obsidian-border bg-obsidian-bg p-4">
                 <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-ivory-muted">
                   当前会话
@@ -61,7 +72,7 @@ export default function StatsPanel({ open, onClose, usage, iteration, totRounds 
                 </div>
               </div>
 
-              {/* Usage Summary */}
+              {/* 用量统计卡片 */}
               {usage ? (
                 <div className="rounded-lg border border-obsidian-border bg-obsidian-bg p-4">
                   <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-ivory-muted">
