@@ -18,6 +18,8 @@
  */
 import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   User,
   Bot,
@@ -29,6 +31,135 @@ import {
   Info,
 } from "lucide-react";
 import type { StreamMessage } from "../types/agent";
+
+/**
+ * 清理思维链内容中的无关代码结构
+ *
+ * 问题：CoT/ToT 节点有时会返回 markdown 代码块（```json ... ```）、
+ *       原始 JSON 字符串、系统标记前缀（[CoT]、[ToT]）等，
+ *       直接展示给用户会造成阅读障碍。
+ *
+ * 策略：
+ * 1. 去掉 markdown 代码块标记（保留块内文本）
+ * 2. 去掉系统前缀标记 [CoT]、[ToT]、[反思] 等
+ * 3. 去掉独立的 JSON 对象/数组块
+ * 4. 压缩多余空行，保留段落和列表结构
+ */
+function cleanThoughtContent(content: string): string {
+  let cleaned = content;
+
+  // 去掉 markdown 代码块标记，保留块内文本
+  cleaned = cleaned.replace(/```(?:json)?\n?([\s\S]*?)```/g, "$1");
+
+  // 去掉系统前缀标记（行首的 [CoT]、[ToT]、[反思] 等）
+  cleaned = cleaned.replace(/^\[(CoT|ToT|反思|Thought|Reflect|分析)\]\s*/gim, "");
+
+  // 去掉独立的 JSON 对象块（通常是大段的 { ... } 或 [ ... ]）
+  // 注意：只去掉看起来是完整 JSON 的块，保留行内简短内容
+  cleaned = cleaned.replace(/\{[\s\S]{20,}?\}/g, "");
+  cleaned = cleaned.replace(/\[[\s\S]{20,}?\]/g, "");
+
+  // 压缩 3 个以上连续换行为 2 个
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+
+  return cleaned.trim();
+}
+
+/**
+ * Markdown 渲染组件（深色主题适配）
+ *
+ * 为 react-markdown 提供自定义组件映射，
+ * 确保表格、代码块、列表等元素在 Obsidian 深色主题下可读。
+ */
+function MarkdownRender({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        // 段落样式
+        p: ({ children }) => (
+          <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>
+        ),
+        // 代码块（带语言标识）
+        pre: ({ children }) => (
+          <pre className="my-2 overflow-x-auto rounded bg-obsidian-bg/80 p-3 text-[12px] text-accent-flash">
+            {children}
+          </pre>
+        ),
+        // 行内代码
+        code: ({ children, className }) => {
+          const isInline = !className;
+          return isInline ? (
+            <code className="rounded bg-obsidian-bg/60 px-1 py-0.5 text-[12px] text-accent-tool">
+              {children}
+            </code>
+          ) : (
+            <code className="text-[12px] text-accent-flash">{children}</code>
+          );
+        },
+        // 无序列表
+        ul: ({ children }) => (
+          <ul className="mb-2 list-disc pl-5 text-ivory/90">{children}</ul>
+        ),
+        // 有序列表
+        ol: ({ children }) => (
+          <ol className="mb-2 list-decimal pl-5 text-ivory/90">{children}</ol>
+        ),
+        // 列表项
+        li: ({ children }) => <li className="mb-1">{children}</li>,
+        // 表格容器
+        table: ({ children }) => (
+          <div className="my-2 overflow-x-auto">
+            <table className="min-w-full border-collapse text-left text-[12px]">
+              {children}
+            </table>
+          </div>
+        ),
+        // 表头
+        thead: ({ children }) => (
+          <thead className="bg-obsidian-panel text-accent-flash">{children}</thead>
+        ),
+        // 表体
+        tbody: ({ children }) => (
+          <tbody className="divide-y divide-obsidian-border">{children}</tbody>
+        ),
+        // 表头单元格
+        th: ({ children }) => (
+          <th className="px-3 py-2 font-semibold">{children}</th>
+        ),
+        // 表体单元格
+        td: ({ children }) => (
+          <td className="px-3 py-2 text-ivory/80">{children}</td>
+        ),
+        // 粗体
+        strong: ({ children }) => (
+          <strong className="font-semibold text-ivory">{children}</strong>
+        ),
+        // 链接
+        a: ({ children, href }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent-tot underline hover:text-accent-flash"
+          >
+            {children}
+          </a>
+        ),
+        // 水平分割线
+        hr: () => <hr className="my-3 border-obsidian-border" />,
+        // 引用块
+        blockquote: ({ children }) => (
+          <blockquote className="my-2 border-l-2 border-accent-cot pl-3 text-ivory-muted italic">
+            {children}
+          </blockquote>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
 
 interface MessageStreamProps {
   messages: StreamMessage[];      // 消息列表
@@ -104,8 +235,8 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
                 </span>
               )}
             </div>
-            <div className="whitespace-pre-wrap text-sm leading-relaxed text-ivory">
-              {msg.content}
+            <div className="text-sm leading-relaxed text-ivory">
+              <MarkdownRender content={msg.content} />
             </div>
           </div>
         </motion.div>
@@ -209,8 +340,8 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
                 {typeLabel}
               </span>
             </div>
-            <div className="whitespace-pre-wrap text-sm leading-relaxed text-ivory/80">
-              {msg.content}
+            <div className="text-sm leading-relaxed text-ivory/80">
+              <MarkdownRender content={cleanThoughtContent(msg.content)} />
             </div>
           </div>
         </motion.div>
