@@ -77,6 +77,10 @@ export function useAgentStream() {
   // AbortController 引用，用于中断 fetch 请求
   const abortRef = useRef<AbortController | null>(null);
 
+  // 会话 ID：同一轮对话使用固定的 thread_id，确保后端 MemorySaver 能加载历史上下文
+  // 点击"清空"按钮时才会重置
+  const threadIdRef = useRef<string>(`frontend-${Date.now()}`);
+
   /**
    * 发送消息并启动 SSE 流
    *
@@ -113,7 +117,7 @@ export function useAgentStream() {
       // 构造请求体
       const payload = {
         question,
-        thread_id: `frontend-${Date.now()}`,
+        thread_id: threadIdRef.current,
         enable_tot: enableTot,
         max_iterations: 10,
       };
@@ -316,9 +320,11 @@ export function useAgentStream() {
 
   /**
    * 清空所有状态，重置到初始值
+   * 同时重置 thread_id，开启新一轮独立对话
    */
   const clear = useCallback(() => {
     stop();
+    threadIdRef.current = `frontend-${Date.now()}`;
     setState({
       isRunning: false,
       activeNode: null,
