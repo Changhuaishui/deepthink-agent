@@ -201,6 +201,13 @@ export default function App() {
         iteration={state.iteration}
         totRounds={state.totRounds}
       />
+
+      {/* AI 生成内容免责声明（中国法规要求） */}
+      <div className="flex h-6 items-center justify-center border-t border-obsidian-border bg-obsidian-panel">
+        <span className="text-[10px] text-ivory-muted/60">
+          该内容为 AI 搜集生成，请谨慎识别
+        </span>
+      </div>
     </div>
   );
 }
