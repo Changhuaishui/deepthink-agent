@@ -12,11 +12,13 @@
  * - 不引入外部图谱库，保持轻量
  */
 import { motion, AnimatePresence } from "framer-motion";
+import { PanelLeftClose } from "lucide-react";
 import type { StreamMessage } from "../types/agent";
 
 interface GraphVisualizerProps {
   activeNode: string | null;   // 当前活跃节点 ID
   messages: StreamMessage[];   // 消息流（预留，未来可用于展示节点历史访问次数）
+  onCollapse: () => void;      // 收起面板回调
 }
 
 /**
@@ -51,14 +53,21 @@ const EDGES = [
   { from: "reflect", to: "final" },     // 反思后输出答案
 ];
 
-export default function GraphVisualizer({ activeNode }: GraphVisualizerProps) {
+export default function GraphVisualizer({ activeNode, onCollapse }: GraphVisualizerProps) {
   return (
     <div className="flex h-full flex-col">
-      {/* 面板标题 */}
-      <div className="border-b border-obsidian-border px-4 py-3">
+      {/* 面板标题 + 收起按钮 */}
+      <div className="flex items-center justify-between border-b border-obsidian-border px-4 py-3">
         <h2 className="text-xs font-semibold uppercase tracking-widest text-ivory-muted">
           状态图
         </h2>
+        <button
+          onClick={onCollapse}
+          className="rounded p-1 text-ivory-muted transition-colors hover:bg-obsidian-panel-hover hover:text-accent-flash"
+          title="收起面板"
+        >
+          <PanelLeftClose className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {/* SVG 状态图画布 */}
