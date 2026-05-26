@@ -36,14 +36,15 @@ import type { StreamMessage } from "../types/agent";
  * 清理思维链内容中的无关代码结构
  *
  * 问题：CoT/ToT 节点有时会返回 markdown 代码块（```json ... ```）、
- *       原始 JSON 字符串、系统标记前缀（[CoT]、[ToT]）等，
- *       直接展示给用户会造成阅读障碍。
+ *       系统标记前缀（[CoT]、[ToT]）等，直接展示给用户会造成阅读障碍。
  *
  * 策略：
  * 1. 去掉 markdown 代码块标记（保留块内文本）
  * 2. 去掉系统前缀标记 [CoT]、[ToT]、[反思] 等
- * 3. 去掉独立的 JSON 对象/数组块
- * 4. 压缩多余空行，保留段落和列表结构
+ * 3. 压缩多余空行，保留段落和列表结构
+ *
+ * 注意：不清理花括号 {} 和方括号 []，因为它们是 Markdown 语法的一部分
+ *       （如链接 [text](url)、列表标记等），误清理会导致 Markdown 渲染异常。
  */
 function cleanThoughtContent(content: string): string {
   let cleaned = content;
@@ -53,11 +54,6 @@ function cleanThoughtContent(content: string): string {
 
   // 去掉系统前缀标记（行首的 [CoT]、[ToT]、[反思] 等）
   cleaned = cleaned.replace(/^\[(CoT|ToT|反思|Thought|Reflect|分析)\]\s*/gim, "");
-
-  // 去掉独立的 JSON 对象块（通常是大段的 { ... } 或 [ ... ]）
-  // 注意：只去掉看起来是完整 JSON 的块，保留行内简短内容
-  cleaned = cleaned.replace(/\{[\s\S]{20,}?\}/g, "");
-  cleaned = cleaned.replace(/\[[\s\S]{20,}?\]/g, "");
 
   // 压缩 3 个以上连续换行为 2 个
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
@@ -187,7 +183,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
           animate="visible"
           className="flex justify-end"
         >
-          <div className="max-w-[80%] rounded-lg rounded-br-sm border border-obsidian-border bg-obsidian-panel-hover px-4 py-3">
+          <div className="max-w-[80%] min-w-0 rounded-lg rounded-br-sm border border-obsidian-border bg-obsidian-panel-hover px-4 py-3">
             <div className="mb-1 flex items-center gap-1.5">
               <User className="h-3 w-3 text-ivory-muted" />
               <span className="text-[10px] font-medium uppercase tracking-wider text-ivory-muted">
@@ -253,7 +249,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
           animate="visible"
           className="flex justify-start"
         >
-          <div className="max-w-[85%] rounded-lg rounded-bl-sm border border-accent-tool/30 bg-accent-tool/5 px-4 py-3">
+          <div className="max-w-[85%] min-w-0 rounded-lg rounded-bl-sm border border-accent-tool/30 bg-accent-tool/5 px-4 py-3">
             <div className="mb-1 flex items-center gap-1.5">
               <Wrench className="h-3 w-3 text-accent-tool" />
               <span className="text-[10px] font-medium uppercase tracking-wider text-accent-tool">
@@ -358,7 +354,7 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
           animate="visible"
           className="flex justify-start"
         >
-          <div className="max-w-[90%] rounded-lg rounded-bl-sm border border-accent-tot/30 bg-accent-tot/5 px-4 py-3">
+          <div className="max-w-[90%] min-w-0 rounded-lg rounded-bl-sm border border-accent-tot/30 bg-accent-tot/5 px-4 py-3">
             <div className="mb-2 flex items-center gap-1.5">
               <GitBranch className="h-3 w-3 text-accent-tot" />
               <span className="text-[10px] font-medium uppercase tracking-wider text-accent-tot">
