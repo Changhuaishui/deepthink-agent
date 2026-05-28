@@ -1,6 +1,6 @@
 # DeepThink Agent
 
-> 2025 年初，我翻完一本叫《AI大模型开发实战》的教材，又啃了几天 Claude Code 泄露的源码。书里的代码能跑，但离"生产级"差得远；Claude Code 的架构很扎实，但源码是 TypeScript，而且塞满了 Anthropic 内部的业务逻辑，没法直接拿来学。
+> 2025 年初，我翻完教材，几天 Claude Code 泄露的源码。书里的代码能跑，但离"生产级"差得远；Claude Code 的架构很扎实，但源码是 TypeScript，而且塞满了 Anthropic 内部的业务逻辑，没法直接拿来学。
 > 
 > 我就想着，能不能用 Python + LangGraph 把这两份资料的核心思想串起来，搭一个自己能看懂、能改、能扩展的 Agent 框架。这个项目就是结果。
 
