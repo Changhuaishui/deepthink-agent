@@ -71,6 +71,7 @@ def build_graph() -> StateGraph:
         route_after_agent,
         {
             "permission": "permission",
+            "cot": "cot",
             "tot": "tot",
             "evaluate": "evaluate",
             "final": "final",

@@ -34,8 +34,6 @@ import utils.deepseek_patch  # noqa: F401
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from graph import graph_app
@@ -50,16 +48,6 @@ from api.schemas import (
     GlobalUsageSummary,
     SSEEvent,
 )
-
-
-# ---------------------------------------------------------------------------
-# Pydantic 请求模型（与 schemas 分离，避免循环导入）
-# ---------------------------------------------------------------------------
-class _ChatRequest(BaseModel):
-    question: str
-    thread_id: str = "frontend"
-    enable_tot: bool = False
-    max_iterations: int = 10
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +333,7 @@ async def get_config():
 
 
 @app.post("/api/chat/stream")
-async def chat_stream(request: _ChatRequest):
+async def chat_stream(request: ChatRequest):
     """SSE 流式聊天接口
     
     前端通过 EventSource 连接，实时接收 Agent 执行过程中的所有事件：

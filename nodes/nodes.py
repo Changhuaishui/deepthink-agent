@@ -4,7 +4,6 @@ LangGraph 节点定义
 对标 Claude Code 的 query.ts 主循环 + 书中第5章的感知-思考-行动架构
 """
 import json
-import random
 import time
 from typing import Dict, Any, List, Literal
 
@@ -16,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from config import Config
 from state import AgentState
 from tools import ALL_TOOLS
+from utils.compact import compact_messages
 from utils.usage_db import usage_db
 from utils.model_router import model_router, ModelRouter
 
@@ -37,22 +37,29 @@ else:
     _llm_flash_with_tools = None
 
 
-def get_llm(model_type: str = "auto") -> ChatOpenAI:
+def _resolve_model_type(model_type: str = "auto", query: str = "") -> Literal["pro", "flash"]:
+    """解析最终模型类型，集中维护 auto 路由语义。"""
+    if model_type == "pro":
+        return "pro"
+    if model_type == "flash":
+        return "flash"
+    return ModelRouter.classify_task(query) if query else "flash"
+
+
+def get_llm(model_type: str = "auto", query: str = "") -> ChatOpenAI:
     """获取指定类型的 LLM 实例
     
     Args:
         model_type: "auto" | "pro" | "flash"
     """
-    return model_router.get_llm(model_type)
+    return model_router.get_llm(model_type, query=query)
 
 
-def get_llm_with_tools(model_type: str = "auto") -> ChatOpenAI:
+def get_llm_with_tools(model_type: str = "auto", query: str = "") -> ChatOpenAI:
     """获取带工具绑定的 LLM 实例"""
-    if model_type == "pro":
+    resolved_type = _resolve_model_type(model_type, query)
+    if resolved_type == "pro":
         return _llm_pro_with_tools
-    if model_type == "flash":
-        return _llm_flash_with_tools
-    # auto 默认返回 Flash（成本低）
     return _llm_flash_with_tools
 
 
@@ -165,7 +172,7 @@ def agent_node(state: AgentState) -> Dict[str, Any]:
             break
     
     # 任务分类
-    model_type = ModelRouter.classify_task(last_user_msg)
+    model_type = _resolve_model_type("auto", last_user_msg)
     llm_with_tools = get_llm_with_tools(model_type)
     
     if llm_with_tools is None:
@@ -190,7 +197,10 @@ def agent_node(state: AgentState) -> Dict[str, Any]:
     # 在响应中注入模型类型信息（用于前端展示）
     response.additional_kwargs["model_type"] = model_type
     
-    return {"messages": [response]}
+    return {
+        "messages": [response],
+        "iteration": state.get("iteration", 0) + 1,
+    }
 
 
 def _compact_context(messages: List) -> List:
@@ -200,39 +210,7 @@ def _compact_context(messages: List) -> List:
     否则 API 会报错 "Messages with role 'tool' must be a response to a 
     preceding message with 'tool_calls'".
     """
-    system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
-    other = [m for m in messages if not isinstance(m, SystemMessage)]
-    
-    # 将消息按"轮次"分组，确保 tool_call 和 ToolMessage 不被拆散
-    groups: List[List] = []
-    i = 0
-    while i < len(other):
-        msg = other[i]
-        group = [msg]
-        i += 1
-        # 如果当前是带 tool_calls 的 AIMessage，后续 ToolMessage 都属于同一轮
-        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
-            while i < len(other) and isinstance(other[i], ToolMessage):
-                group.append(other[i])
-                i += 1
-        groups.append(group)
-    
-    # 保留最近的几组（默认最近 3 组 ≈ 6-8 条消息，但保证完整性）
-    keep_groups = 3
-    if len(groups) <= keep_groups:
-        return messages
-    
-    preserved_groups = groups[-keep_groups:]
-    preserved = [msg for group in preserved_groups for msg in group]
-    compressed_count = len(other) - len(preserved)
-    
-    if compressed_count > 0:
-        compact_msg = SystemMessage(
-            content=f"[上下文压缩] 中间 {compressed_count} 条消息已摘要。"
-                    f"保留最近 {len(preserved_groups)} 轮对话（共 {len(preserved)} 条消息）。"
-        )
-        return system_msgs + [compact_msg] + preserved
-    return messages
+    return compact_messages(messages, preserve_recent_groups=3)
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +399,6 @@ def evaluate_node(state: AgentState) -> Dict[str, Any]:
             score += 0.3
         if thoughts and ("分步" in cand.get("name", "") or "验证" in cand.get("logic", "")):
             score += 0.2
-        score += random.uniform(-0.05, 0.05)
         scores.append(score)
     
     best_idx = int(np.argmax(scores))
@@ -502,12 +479,22 @@ def final_answer_node(state: AgentState) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 路由函数（条件边）
 # ---------------------------------------------------------------------------
-def route_after_agent(state: AgentState) -> Literal["permission", "tot", "evaluate", "final", "end"]:
+def route_after_agent(state: AgentState) -> Literal["permission", "cot", "tot", "evaluate", "final", "end"]:
     """Agent 节点后的路由决策"""
     last_msg = state["messages"][-1] if state["messages"] else None
+    iteration = state.get("iteration", 0)
+    max_iter = state.get("max_iterations", Config.AGENT_MAX_ITERATIONS)
+    
+    if iteration >= max_iter:
+        if state.get("thoughts") or state.get("candidates") or state.get("tool_results"):
+            return "final"
+        return "end"
     
     if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
         return "permission"
+    
+    if state.get("need_tot") and not state.get("thoughts") and not state.get("candidates"):
+        return "cot"
     
     if state.get("need_tot") and not state.get("candidates"):
         return "tot"

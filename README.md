@@ -69,7 +69,6 @@ deepthink-agent/
 │   └── tools.py          # 9 个工具
 └── utils/
     ├── compact.py        # 上下文压缩
-    ├── cost_tracker.py   # 成本计算
     └── usage_db.py       # SQLite 持久化用量
 ```
 
@@ -124,7 +123,8 @@ pip install -r requirements.txt
 ```env
 OPENAI_API_KEY=sk-your-key
 OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-chat
+LLM_PRO_MODEL=deepseek-v4-pro
+LLM_FLASH_MODEL=deepseek-v4-flash
 ```
 
 运行：

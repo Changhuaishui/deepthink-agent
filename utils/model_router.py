@@ -46,7 +46,7 @@ class ModelRouter:
             **common_kwargs,
         )
     
-    def get_llm(self, model_type: Literal["auto", "pro", "flash"] = "auto") -> ChatOpenAI:
+    def get_llm(self, model_type: Literal["auto", "pro", "flash"] = "auto", query: str = "") -> ChatOpenAI:
         """获取指定类型的 LLM 实例
         
         Args:
@@ -54,6 +54,7 @@ class ModelRouter:
                 - "auto": 根据任务自动判断（默认）
                 - "pro": 强制使用主模型
                 - "flash": 强制使用子模型
+            query: auto 模式下用于复杂度分类的用户问题
         
         Returns:
             ChatOpenAI 实例
@@ -62,8 +63,8 @@ class ModelRouter:
             return self._pro_llm
         if model_type == "flash":
             return self._flash_llm
-        # auto 模式下由调用方后续通过 classify_task 判断
-        return self._flash_llm  # 默认先返回 Flash，复杂任务再升级
+        routed_type = self.classify_task(query) if query else "flash"
+        return self._pro_llm if routed_type == "pro" else self._flash_llm
     
     @staticmethod
     def classify_task(query: str) -> Literal["pro", "flash"]:

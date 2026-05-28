@@ -363,7 +363,7 @@ class RAGKnowledgeBase:
         return _fmt_result(True, {"query": query, "results": results})
 
 
-_kb = RAGKnowledgeBase()
+_kb: Optional[RAGKnowledgeBase] = None
 
 
 @tool
@@ -371,6 +371,9 @@ def rag_tool(query: str) -> str:
     """本地知识库检索工具。输入问题，返回基于向量相似度检索的相关知识片段。
     技术实现：Sentence-Transformers 编码 + FAISS 向量检索（复用书中第4章代码模式）。
     """
+    global _kb
+    if _kb is None:
+        _kb = RAGKnowledgeBase()
     return _kb.search(query)
 
 

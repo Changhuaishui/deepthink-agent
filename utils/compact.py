@@ -1,23 +1,24 @@
 """
 上下文压缩模块
 对标 Claude Code 的 autoCompact.ts + compact.ts
-复用书中第4章 Embedding 技术进行语义摘要
+保留工具调用配对，避免压缩后破坏 OpenAI tool message 顺序约束
 """
 from typing import List
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, SystemMessage, AIMessage, ToolMessage
 
 
 def compact_messages(
     messages: List[BaseMessage],
     max_messages: int = 10,
-    preserve_last_n: int = 4
+    preserve_recent_groups: int = 3,
 ) -> List[BaseMessage]:
     """消息历史压缩函数
     
     策略：
     1. 保留系统消息
-    2. 保留最近 preserve_last_n 条消息
-    3. 中间过长的消息替换为摘要提示
+    2. 按轮次保留最近 preserve_recent_groups 组消息
+    3. AIMessage.tool_calls 与后续 ToolMessage 必须成组保留
+    4. 中间过长的消息替换为摘要提示
     
     对标 Claude Code 的 autoCompact() 和 buildPostCompactMessages()。
     """
@@ -28,13 +29,29 @@ def compact_messages(
     system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
     other_msgs = [m for m in messages if not isinstance(m, SystemMessage)]
     
-    # 保留最近的消息
-    recent = other_msgs[-preserve_last_n:]
+    groups: List[List[BaseMessage]] = []
+    i = 0
+    while i < len(other_msgs):
+        msg = other_msgs[i]
+        group = [msg]
+        i += 1
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            while i < len(other_msgs) and isinstance(other_msgs[i], ToolMessage):
+                group.append(other_msgs[i])
+                i += 1
+        groups.append(group)
+    
+    if len(groups) <= preserve_recent_groups:
+        return messages
+    
+    preserved_groups = groups[-preserve_recent_groups:]
+    recent = [msg for group in preserved_groups for msg in group]
+    compressed_count = len(other_msgs) - len(recent)
     
     # 中间部分压缩为一条摘要提示
     summary_msg = SystemMessage(
-        content=f"[上下文压缩] 中间 {len(other_msgs) - preserve_last_n} 条消息已被压缩。"
-                f"当前保留最近 {preserve_last_n} 条对话记录。"
+        content=f"[上下文压缩] 中间 {compressed_count} 条消息已摘要。"
+                f"保留最近 {len(preserved_groups)} 轮对话（共 {len(recent)} 条消息）。"
     )
     
     return system_msgs + [summary_msg] + recent

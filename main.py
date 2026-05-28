@@ -4,7 +4,8 @@ DeepThink Agent 入口文件
 环境配置（推荐写入 .env 文件）：
     OPENAI_API_KEY=sk-xxx
     OPENAI_BASE_URL=https://api.deepseek.com/v1
-    OPENAI_MODEL=deepseek-chat
+    LLM_PRO_MODEL=deepseek-v4-pro
+    LLM_FLASH_MODEL=deepseek-v4-flash
 
 本书对照学习指南：
 - 第1-2章：LangChain Tool 定义与 ReAct 概念
@@ -160,7 +161,7 @@ def interactive_mode():
     
     print("\n" + "=" * 60)
     print("🧠 DeepThink Agent 交互模式")
-    print(f"模型: {Config.OPENAI_MODEL}")
+    print(f"模型: Pro={Config.LLM_PRO_MODEL} | Flash={Config.LLM_FLASH_MODEL}")
     print("输入问题让 Agent 回答，输入 'quit' 退出，输入 'usage' 查看用量")
     print("=" * 60 + "\n")
     
