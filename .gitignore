@@ -16,6 +16,7 @@ pip-log.txt
 
 # Database & Data
 data/
+data/artifacts/
 *.db
 *.sqlite
 *.sqlite3
