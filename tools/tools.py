@@ -187,13 +187,36 @@ def git_clone_tool(repo_url: str, target_dir: str = "") -> str:
 # 5. 文件操作工具集（对标 Claude Code 核心文件工具）
 # ---------------------------------------------------------------------------
 ALLOWED_ROOT = Config.PROJECT_ROOT
+ARTIFACT_ROOT = Config.DATA_DIR / "artifacts"
 
 
 def _safe_path(filepath: str) -> Path:
     """确保文件路径在允许范围内，防止目录遍历攻击"""
     target = (ALLOWED_ROOT / filepath).resolve()
-    if not str(target).startswith(str(ALLOWED_ROOT)):
+    try:
+        target.relative_to(ALLOWED_ROOT)
+    except ValueError:
         raise ValueError(f"路径越界: {filepath}")
+    return target
+
+
+def _safe_artifact_path(filepath: str) -> Path:
+    """确保 Agent 生成文件只能写入 data/artifacts/。"""
+    relative = Path(filepath)
+    if relative.is_absolute():
+        raise ValueError(f"写入路径必须是相对路径: {filepath}")
+
+    parts = relative.parts
+    if len(parts) >= 2 and parts[0] == "data" and parts[1] == "artifacts":
+        relative = Path(*parts[2:]) if len(parts) > 2 else Path()
+    if not relative.parts:
+        raise ValueError("写入路径不能为空")
+
+    target = (ARTIFACT_ROOT / relative).resolve()
+    try:
+        target.relative_to(ARTIFACT_ROOT.resolve())
+    except ValueError:
+        raise ValueError(f"写入路径越界: {filepath}")
     return target
 
 
@@ -228,17 +251,20 @@ def read_file_tool(filepath: str, offset: int = 0, limit: int = 100) -> str:
 
 @tool
 def write_file_tool(filepath: str, content: str, append: bool = False) -> str:
-    """写入内容到本地文件。输入相对路径和文本内容。
+    """写入 Agent 生成文件。输入 data/artifacts/ 内的相对路径和文本内容。
     
     append=true 时为追加模式，false 为覆盖模式。
     """
     try:
-        path = _safe_path(filepath)
+        path = _safe_artifact_path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
         with open(path, mode, encoding="utf-8") as f:
             f.write(content)
-        return _fmt_result(True, {"filepath": filepath, "mode": "append" if append else "overwrite"})
+        return _fmt_result(True, {
+            "filepath": str(path.relative_to(ALLOWED_ROOT)),
+            "mode": "append" if append else "overwrite",
+        })
     except Exception as e:
         return _fmt_result(False, None, f"写入失败: {str(e)}")
 
