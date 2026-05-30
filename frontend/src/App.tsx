@@ -47,6 +47,7 @@ export default function App() {
       <Header
         isRunning={state.isRunning}
         activeNode={state.activeNode}
+        onToggleStats={() => setShowStats((s) => !s)}
         onClear={clear}
       />
 
@@ -103,7 +104,7 @@ export default function App() {
             onSuggestionClick={setPrefill}
           />
           <InputArea
-            onSend={(q, tot) => sendMessage(q, tot)}
+            onSend={(q, enableDeepThinking) => sendMessage(q, enableDeepThinking)}
             onStop={stop}
             isRunning={state.isRunning}
             prefilledText={prefill}
@@ -118,7 +119,6 @@ export default function App() {
         onClose={() => setShowStats(false)}
         usage={state.usage}
         iteration={state.iteration}
-        totRounds={state.totRounds}
       />
 
       {/* 免责声明（中国法规要求） */}

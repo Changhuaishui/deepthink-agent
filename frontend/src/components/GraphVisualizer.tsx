@@ -19,10 +19,7 @@ const NODES = [
   { id: "agent",      label: "决策",     color: "#0ca678" },
   { id: "permission", label: "权限",     color: "#e8590c" },
   { id: "cot",        label: "CoT",      color: "#7950f2" },
-  { id: "tot",        label: "ToT",      color: "#1971c2" },
   { id: "tools",      label: "工具",     color: "#e8590c" },
-  { id: "evaluate",   label: "评估",     color: "#1971c2" },
-  { id: "reflect",    label: "反思",     color: "#7950f2" },
   { id: "final",      label: "输出",     color: "#0ca678" },
 ];
 

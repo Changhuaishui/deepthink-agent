@@ -4,7 +4,7 @@
  * 核心交互：
  * - 分类 Tabs + Suggestion Chips，点击自动填入输入框
  * - 聚焦时发光效果
- * - ToT 深度思考开关
+ * - 轻量分步分析开关
  * - 运行中输入框变暗 + 显示停止按钮
  * - 外部 prefilledText 注入支持
  */
@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 interface InputAreaProps {
-  onSend: (question: string, enableTot: boolean) => void;
+  onSend: (question: string, enableDeepThinking: boolean) => void;
   onStop: () => void;
   isRunning: boolean;
   prefilledText?: string;
@@ -44,7 +44,7 @@ const SUGGESTIONS: Record<SuggestionTab, string[]> = {
   常用: [
     "什么是 LangGraph，它和 LangChain 有什么关系？",
     "请介绍一下 DeepThink Agent 的工作原理",
-    "对比 CoT 和 ToT 的适用场景",
+    "什么时候需要分步分析？",
   ],
   搜索: [
     "搜索最新的 AI Agent 开发框架",
@@ -76,7 +76,7 @@ export default function InputArea({
   onPrefillConsumed,
 }: InputAreaProps) {
   const [input, setInput] = useState("");
-  const [enableTot, setEnableTot] = useState(false);
+  const [enableDeepThinking, setEnableDeepThinking] = useState(false);
   const [activeTab, setActiveTab] = useState<SuggestionTab>("常用");
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -99,7 +99,7 @@ export default function InputArea({
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || isRunning) return;
-    onSend(trimmed, enableTot);
+    onSend(trimmed, enableDeepThinking);
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
@@ -188,23 +188,23 @@ export default function InputArea({
           {/* 顶部工具栏 */}
           <div className="flex items-center justify-between px-1">
             <button
-              onClick={() => setEnableTot((v) => !v)}
+              onClick={() => setEnableDeepThinking((v) => !v)}
               className="flex cursor-pointer items-center gap-2"
             >
               <span
                 className={`relative inline-flex h-4 w-8 shrink-0 items-center rounded-full transition-colors ${
-                  enableTot ? "bg-blue-500" : "bg-gray-300"
+                  enableDeepThinking ? "bg-violet-500" : "bg-gray-300"
                 }`}
               >
                 <span
                   className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                    enableTot ? "translate-x-[18px]" : "translate-x-0.5"
+                    enableDeepThinking ? "translate-x-[18px]" : "translate-x-0.5"
                   }`}
                 />
               </span>
               <span className="flex items-center gap-1 text-xs text-gray-500">
                 <BrainCircuit className="h-3 w-3" />
-                ToT 深度思考
+                分步分析
               </span>
             </button>
             <span className="text-[10px] text-gray-400">

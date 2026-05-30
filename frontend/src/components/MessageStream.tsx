@@ -8,13 +8,13 @@ import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot, Wrench, CheckCircle2, XCircle, Lightbulb, GitBranch, Info } from "lucide-react";
+import { User, Bot, Wrench, CheckCircle2, XCircle, Lightbulb, Info } from "lucide-react";
 import type { StreamMessage } from "../types/agent";
 
 function cleanThoughtContent(content: string): string {
   let cleaned = content;
   cleaned = cleaned.replace(/```(?:json)?\n?([\s\S]*?)```/g, "$1");
-  cleaned = cleaned.replace(/^\[(CoT|ToT|反思|Thought|Reflect|分析)\]\s*/gim, "");
+  cleaned = cleaned.replace(/^\[(CoT|Thought|分析)\]\s*/gim, "");
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
   return cleaned.trim();
 }
@@ -188,11 +188,8 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
     }
 
     case "thought": {
-      const th = msg.payload as { thought_type?: string };
-      const typeLabel =
-        th.thought_type === "cot" ? "CoT 思考" : th.thought_type === "tot" ? "ToT 探索" : "反思";
-      const color =
-        th.thought_type === "cot" ? "#7950f2" : th.thought_type === "tot" ? "#1971c2" : "#0ca678";
+      const typeLabel = "CoT 思考";
+      const color = "#7950f2";
       return (
         <motion.div variants={variants} initial="hidden" animate="visible" className="flex justify-start">
           <div
@@ -207,42 +204,6 @@ function MessageBubble({ msg }: { msg: StreamMessage }) {
             </div>
             <div className="text-sm leading-relaxed text-gray-600">
               <MarkdownRender content={cleanThoughtContent(msg.content)} />
-            </div>
-          </div>
-        </motion.div>
-      );
-    }
-
-    case "candidate": {
-      const cand = msg.payload as { candidates?: Array<Record<string, unknown>>; best_idx?: number };
-      return (
-        <motion.div variants={variants} initial="hidden" animate="visible" className="flex justify-start">
-          <div className="max-w-[90%] rounded-lg rounded-bl-sm border border-blue-200 bg-blue-50 px-4 py-3">
-            <div className="mb-2 flex items-center gap-1.5">
-              <GitBranch className="h-3 w-3 text-blue-500" />
-              <span className="text-[10px] font-medium uppercase tracking-wider text-blue-600">ToT 候选方案</span>
-            </div>
-            <div className="space-y-2">
-              {cand.candidates?.map((c, i) => (
-                <div
-                  key={i}
-                  className={`rounded border px-3 py-2 ${
-                    i === cand.best_idx
-                      ? "border-blue-300 bg-blue-100"
-                      : "border-gray-200 bg-white/60"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-gray-800">{String(c.name)}</span>
-                    {i === cand.best_idx && (
-                      <span className="rounded bg-blue-200 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700">
-                        最佳
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-[11px] text-gray-500">{String(c.logic || "")}</p>
-                </div>
-              ))}
             </div>
           </div>
         </motion.div>

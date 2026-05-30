@@ -15,7 +15,6 @@ import type {
   ToolCallPayload,
   ToolResultPayload,
   ThoughtPayload,
-  CandidatePayload,
   StateUpdatePayload,
   UsagePayload,
 } from "../types/agent";
@@ -32,8 +31,7 @@ export interface AgentState {
   messages: StreamMessage[];
   executionSteps: ExecutionStep[];
   iteration: number;
-  totRounds: number;
-  needTot: boolean;
+  needDeepThinking: boolean;
   usage: UsagePayload | null;
   error: string | null;
 }
@@ -45,8 +43,7 @@ export function useAgentStream() {
     messages: [],
     executionSteps: [],
     iteration: 0,
-    totRounds: 0,
-    needTot: false,
+    needDeepThinking: false,
     usage: null,
     error: null,
   });
@@ -55,7 +52,7 @@ export function useAgentStream() {
   const threadIdRef = useRef<string>(`frontend-${Date.now()}`);
 
   const sendMessage = useCallback(
-    (question: string, enableTot = false) => {
+    (question: string, enableDeepThinking = false) => {
       if (abortRef.current) {
         abortRef.current.abort();
       }
@@ -69,13 +66,21 @@ export function useAgentStream() {
         content: question,
         timestamp: Date.now(),
       };
+      const userStep: ExecutionStep = {
+        id: generateId(),
+        type: "user_prompt",
+        node: "user",
+        content: question,
+        status: "success",
+        timestamp: userMsg.timestamp,
+      };
 
       setState((prev) => ({
         ...prev,
         isRunning: true,
         activeNode: "agent",
         messages: [...prev.messages, userMsg],
-        executionSteps: [],
+        executionSteps: [userStep],
         error: null,
         usage: null,
       }));
@@ -83,7 +88,7 @@ export function useAgentStream() {
       const payload = {
         question,
         thread_id: threadIdRef.current,
-        enable_tot: enableTot,
+        enable_deep_thinking: enableDeepThinking,
         max_iterations: 10,
       };
 
@@ -173,12 +178,13 @@ export function useAgentStream() {
               next.activeNode = node;
 
               // 派生 executionStep
-              if (msg.role === "assistant") {
+              if (msg.role === "assistant" && !msg.tool_calls?.length && msg.content.trim()) {
+                const hasPriorExecutionContext = prev.executionSteps.some((step) =>
+                  ["tool_result_step", "cot_step"].includes(step.type)
+                );
                 const step: ExecutionStep = {
                   id: generateId(),
-                  type: next.activeNode === "final" || next.activeNode === "evaluate"
-                    ? next.activeNode === "final" ? "final_step" : "evaluate_step"
-                    : "llm_decision",
+                  type: hasPriorExecutionContext ? "final_step" : "llm_decision",
                   node: node || "agent",
                   model_type: msg.model_type,
                   content: msg.content,
@@ -241,6 +247,20 @@ export function useAgentStream() {
 
               // 追加 tool_result step
               const updatedSteps = [...prev.executionSteps];
+              for (let i = updatedSteps.length - 1; i >= 0; i -= 1) {
+                const step = updatedSteps[i];
+                if (
+                  step.type === "tool_call_step" &&
+                  step.tool_name === tr.tool_name &&
+                  step.status === "running"
+                ) {
+                  updatedSteps[i] = {
+                    ...step,
+                    status: tr.ok ? "success" : "error",
+                  };
+                  break;
+                }
+              }
               const toolStep: ExecutionStep = {
                 id: generateId(),
                 type: "tool_result_step",
@@ -257,7 +277,7 @@ export function useAgentStream() {
               break;
             }
 
-            // ---- thought (CoT / ToT / Reflect) ----
+            // ---- thought (CoT) ----
             case "thought": {
               const th = event.data as unknown as ThoughtPayload;
               next.messages = [
@@ -271,17 +291,11 @@ export function useAgentStream() {
                 },
               ];
 
-              const thoughtType = th.thought_type === "cot"
-                ? "cot_step" as const
-                : th.thought_type === "tot"
-                  ? "tot_step" as const
-                  : "evaluate_step" as const;
-
               next.executionSteps = [
                 ...prev.executionSteps,
                 {
                   id: generateId(),
-                  type: thoughtType,
+                  type: "cot_step",
                   node: node || th.thought_type,
                   content: th.content,
                   iteration: prev.iteration,
@@ -293,41 +307,11 @@ export function useAgentStream() {
               break;
             }
 
-            // ---- candidate (ToT 候选方案) ----
-            case "candidate": {
-              const cand = event.data as unknown as CandidatePayload;
-              next.messages = [
-                ...prev.messages,
-                {
-                  id: generateId(),
-                  type: "candidate",
-                  content: `生成 ${cand.candidates.length} 个候选方案`,
-                  payload: { ...cand, node: "tot" },
-                  timestamp: ts,
-                },
-              ];
-
-              next.executionSteps = [
-                ...prev.executionSteps,
-                {
-                  id: generateId(),
-                  type: "candidates_step",
-                  node: "tot",
-                  content: `${cand.candidates.length} 个候选方案`,
-                  iteration: prev.iteration,
-                  status: "success",
-                  timestamp: ts,
-                },
-              ];
-              break;
-            }
-
             // ---- state_update ----
             case "state_update": {
               const st = event.data as unknown as StateUpdatePayload;
               if (st.iteration !== undefined) next.iteration = st.iteration;
-              if (st.tot_rounds !== undefined) next.totRounds = st.tot_rounds;
-              if (st.need_tot !== undefined) next.needTot = st.need_tot;
+              if (st.need_deep_thinking !== undefined) next.needDeepThinking = st.need_deep_thinking;
               break;
             }
 
@@ -345,7 +329,7 @@ export function useAgentStream() {
                 ...prev.executionSteps,
                 {
                   id: generateId(),
-                  type: "evaluate_step",
+                  type: "system_step",
                   node: "system",
                   content: err,
                   status: "error",
@@ -387,8 +371,7 @@ export function useAgentStream() {
       messages: [],
       executionSteps: [],
       iteration: 0,
-      totRounds: 0,
-      needTot: false,
+      needDeepThinking: false,
       usage: null,
       error: null,
     });

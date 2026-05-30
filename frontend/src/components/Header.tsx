@@ -2,15 +2,16 @@
  * Header 组件 —— 顶部状态栏（浅色主题）
  */
 import { motion } from "framer-motion";
-import { BrainCircuit, Activity, Trash2 } from "lucide-react";
+import { BrainCircuit, Activity, Trash2, BarChart3 } from "lucide-react";
 
 interface HeaderProps {
   isRunning: boolean;
   activeNode: string | null;
+  onToggleStats: () => void;
   onClear: () => void;
 }
 
-export default function Header({ isRunning, activeNode, onClear }: HeaderProps) {
+export default function Header({ isRunning, activeNode, onToggleStats, onClear }: HeaderProps) {
   return (
     <motion.header
       initial={{ opacity: 0, y: -10 }}
@@ -55,6 +56,13 @@ export default function Header({ isRunning, activeNode, onClear }: HeaderProps) 
 
       {/* 右侧：操作按钮 */}
       <div className="flex items-center gap-1.5">
+        <button
+          onClick={onToggleStats}
+          className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-100 hover:text-emerald-600"
+        >
+          <BarChart3 className="h-3.5 w-3.5" />
+          统计
+        </button>
         <button
           onClick={onClear}
           className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-500"

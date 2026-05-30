@@ -16,8 +16,7 @@ export type SSEEventType =
   | "message"        // LLM 消息（AI / Human / Tool）
   | "tool_call"      // 工具调用请求
   | "tool_result"    // 工具执行结果
-  | "thought"        // CoT / ToT / Reflect 思考过程
-  | "candidate"      // ToT 候选方案更新
+  | "thought"        // CoT 思考过程
   | "state_update"   // 状态变更通知
   | "usage"          // Token / 成本用量统计
   | "error"          // 执行错误
@@ -76,20 +75,12 @@ export interface ToolResultPayload {
 }
 
 /**
- * 思考事件载荷 —— CoT / ToT / Reflect 节点产生
+ * 思考事件载荷 —— CoT 节点产生
  */
 export interface ThoughtPayload {
-  thought_type: "cot" | "tot" | "reflect";
+  thought_type: "cot";
   content: string;
   details?: Record<string, unknown>;
-}
-
-/**
- * ToT 候选方案事件载荷
- */
-export interface CandidatePayload {
-  candidates: Array<Record<string, unknown>>;
-  best_idx: number;
 }
 
 /**
@@ -97,8 +88,7 @@ export interface CandidatePayload {
  */
 export interface StateUpdatePayload {
   iteration: number;        // 当前迭代次数
-  tot_rounds: number;       // ToT 探索轮次
-  need_tot: boolean;        // 是否需要继续 ToT
+  need_deep_thinking: boolean;
   permission_granted?: boolean;
 }
 
@@ -137,7 +127,7 @@ export interface AgentConfig {
  */
 export interface StreamMessage {
   id: string;               // 前端生成的唯一标识
-  type: "user" | "assistant" | "tool_call" | "tool_result" | "thought" | "candidate" | "system";
+  type: "user" | "assistant" | "tool_call" | "tool_result" | "thought" | "system";
   content: string;          // 展示的文本内容
   payload?: Record<string, unknown>;  // 原始载荷，供组件按需读取
   timestamp: number;        // 前端收到时间（Unix 毫秒）
@@ -145,14 +135,13 @@ export interface StreamMessage {
 
 /** 执行步骤类型 — 驱动 ExecutionTimeline */
 export type ExecutionStepType =
+  | "user_prompt"
   | "llm_decision"
   | "permission_check"
   | "tool_call_step"
   | "tool_result_step"
   | "cot_step"
-  | "tot_step"
-  | "candidates_step"
-  | "evaluate_step"
+  | "system_step"
   | "final_step";
 
 /** 执行时间线步骤 */
@@ -167,7 +156,6 @@ export interface ExecutionStep {
   tool_data?: unknown;
   content: string;
   iteration?: number;
-  tot_rounds?: number;
   status: "running" | "success" | "error" | "pending";
   timestamp: number;
   collapsed?: boolean;

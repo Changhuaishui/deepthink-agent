@@ -11,11 +11,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Bot,
+  User,
   Wrench,
   CheckCircle2,
   XCircle,
   Lightbulb,
-  GitBranch,
   ChevronDown,
   ChevronRight,
   Search,
@@ -37,6 +37,8 @@ interface StepStyle {
 
 function getStepStyle(type: ExecutionStepType): StepStyle {
   switch (type) {
+    case "user_prompt":
+      return { label: "用户输入", color: "#495057", bg: "rgba(73,80,87,0.04)", icon: <User className="h-3.5 w-3.5" /> };
     case "llm_decision":
       return { label: "LLM 决策", color: "#0ca678", bg: "rgba(12,166,120,0.06)", icon: <Bot className="h-3.5 w-3.5" /> };
     case "permission_check":
@@ -47,12 +49,8 @@ function getStepStyle(type: ExecutionStepType): StepStyle {
       return { label: "工具结果", color: "#0ca678", bg: "rgba(12,166,120,0.04)", icon: <CheckCircle2 className="h-3.5 w-3.5" /> };
     case "cot_step":
       return { label: "CoT 思考", color: "#7950f2", bg: "rgba(121,80,242,0.05)", icon: <Lightbulb className="h-3.5 w-3.5" /> };
-    case "tot_step":
-      return { label: "ToT 探索", color: "#1971c2", bg: "rgba(25,113,194,0.05)", icon: <GitBranch className="h-3.5 w-3.5" /> };
-    case "candidates_step":
-      return { label: "候选方案", color: "#1971c2", bg: "rgba(25,113,194,0.05)", icon: <GitBranch className="h-3.5 w-3.5" /> };
-    case "evaluate_step":
-      return { label: "评估", color: "#1971c2", bg: "rgba(25,113,194,0.05)", icon: <CheckCircle2 className="h-3.5 w-3.5" /> };
+    case "system_step":
+      return { label: "系统", color: "#868e96", bg: "rgba(134,142,150,0.05)", icon: <XCircle className="h-3.5 w-3.5" /> };
     case "final_step":
       return { label: "最终输出", color: "#0ca678", bg: "rgba(12,166,120,0.06)", icon: <CheckCircle2 className="h-3.5 w-3.5" /> };
   }
@@ -64,7 +62,7 @@ function getStepStyle(type: ExecutionStepType): StepStyle {
 function cleanThoughtContent(content: string): string {
   let cleaned = content;
   cleaned = cleaned.replace(/```(?:json)?\n?([\s\S]*?)```/g, "$1");
-  cleaned = cleaned.replace(/^\[(CoT|ToT|反思|Thought|Reflect|分析)\]\s*/gim, "");
+  cleaned = cleaned.replace(/^\[(CoT|Thought|分析)\]\s*/gim, "");
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
   return cleaned.trim();
 }
@@ -335,22 +333,19 @@ export default function ExecutionTimeline({
                       {step.type === "tool_result_step" && !showExpand && (
                         <p className="mt-1.5 text-sm text-gray-600">{step.content}</p>
                       )}
-                      {(step.type === "llm_decision" ||
+                      {(step.type === "user_prompt" ||
+                        step.type === "llm_decision" ||
                         step.type === "cot_step" ||
-                        step.type === "tot_step" ||
                         step.type === "final_step") && (
                         <div className="mt-2 text-sm leading-relaxed text-gray-700">
                           <MarkdownRender
                             content={
-                              step.type === "cot_step" || step.type === "tot_step"
+                              step.type === "cot_step"
                                 ? cleanThoughtContent(step.content)
                                 : step.content
                             }
                           />
                         </div>
-                      )}
-                      {step.type === "candidates_step" && (
-                        <p className="mt-1.5 text-sm text-gray-600">{step.content}</p>
                       )}
                     </div>
                   </motion.div>
