@@ -187,24 +187,26 @@ export default function InputArea({
         >
           {/* 顶部工具栏 */}
           <div className="flex items-center justify-between px-1">
-            <label className="flex cursor-pointer items-center gap-2">
-              <button
-                onClick={() => setEnableTot((v) => !v)}
-                className={`relative h-4 w-8 rounded-full transition-colors ${
+            <button
+              onClick={() => setEnableTot((v) => !v)}
+              className="flex cursor-pointer items-center gap-2"
+            >
+              <span
+                className={`relative inline-flex h-4 w-8 shrink-0 items-center rounded-full transition-colors ${
                   enableTot ? "bg-blue-500" : "bg-gray-300"
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                    enableTot ? "translate-x-4" : "translate-x-0.5"
+                  className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${
+                    enableTot ? "translate-x-[18px]" : "translate-x-0.5"
                   }`}
                 />
-              </button>
+              </span>
               <span className="flex items-center gap-1 text-xs text-gray-500">
                 <BrainCircuit className="h-3 w-3" />
                 ToT 深度思考
               </span>
-            </label>
+            </button>
             <span className="text-[10px] text-gray-400">
               {isRunning ? "Agent 运行中..." : "Shift + Enter 换行"}
             </span>

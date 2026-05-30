@@ -3,18 +3,14 @@
  *
  * 职责：
  * 1. 通过 fetch + ReadableStream 连接后端 /api/chat/stream SSE 接口
- * 2. 实时解析 SSE 数据流，转换为前端状态（消息列表、活跃节点、用量统计）
+ * 2. 实时解析 SSE 数据流，转换为前端状态（消息列表、执行步骤、活跃节点、用量统计）
  * 3. 提供 sendMessage / stop / clear 三个操作接口
- *
- * 设计决策：
- * - 使用 fetch 而非原生 EventSource，因为 EventSource 不支持 POST 请求和自定义请求头
- * - 使用 ReadableStream.getReader() 手动读取流，实现逐事件解析
- * - AbortController 用于支持用户手动中断运行
  */
 import { useState, useCallback, useRef } from "react";
 import type {
   SSEEvent,
   StreamMessage,
+  ExecutionStep,
   MessagePayload,
   ToolCallPayload,
   ToolResultPayload,
@@ -24,49 +20,30 @@ import type {
   UsagePayload,
 } from "../types/agent";
 
-/**
- * 后端 API 基础地址
- * 开发环境前后端分离，前端在 5173，后端在 8000
- * 生产环境应通过环境变量或反向代理配置
- */
 const API_BASE = "http://localhost:8000";
 
-/**
- * 生成前端唯一消息 ID
- */
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * Agent 运行时状态
- * 驱动整个 UI 的单一数据源（Single Source of Truth）
- */
 export interface AgentState {
-  isRunning: boolean;           // 是否正在运行
-  activeNode: string | null;    // 当前活跃的 LangGraph 节点
-  messages: StreamMessage[];    // 消息流（用户、AI、工具、思考等）
-  iteration: number;            // 当前迭代计数
-  totRounds: number;            // ToT 探索轮次
-  needTot: boolean;             // 是否需要继续 ToT
-  usage: UsagePayload | null;   // 用量统计
-  error: string | null;         // 错误信息
+  isRunning: boolean;
+  activeNode: string | null;
+  messages: StreamMessage[];
+  executionSteps: ExecutionStep[];
+  iteration: number;
+  totRounds: number;
+  needTot: boolean;
+  usage: UsagePayload | null;
+  error: string | null;
 }
 
-/**
- * useAgentStream Hook
- *
- * @returns state —— 当前 Agent 运行状态
- * @returns sendMessage —— 发送新问题，启动 SSE 流
- * @returns stop —— 中止当前运行
- * @returns clear —— 清空所有状态
- */
 export function useAgentStream() {
-  // Agent 完整状态
   const [state, setState] = useState<AgentState>({
     isRunning: false,
     activeNode: null,
     messages: [],
+    executionSteps: [],
     iteration: 0,
     totRounds: 0,
     needTot: false,
@@ -74,22 +51,11 @@ export function useAgentStream() {
     error: null,
   });
 
-  // AbortController 引用，用于中断 fetch 请求
   const abortRef = useRef<AbortController | null>(null);
-
-  // 会话 ID：同一轮对话使用固定的 thread_id，确保后端 MemorySaver 能加载历史上下文
-  // 点击"清空"按钮时才会重置
   const threadIdRef = useRef<string>(`frontend-${Date.now()}`);
 
-  /**
-   * 发送消息并启动 SSE 流
-   *
-   * @param question —— 用户输入的问题
-   * @param enableTot —— 是否启用 Tree-of-Thought 深度思考模式
-   */
   const sendMessage = useCallback(
     (question: string, enableTot = false) => {
-      // 如果有正在运行的请求，先中止，防止竞态
       if (abortRef.current) {
         abortRef.current.abort();
       }
@@ -97,7 +63,6 @@ export function useAgentStream() {
       const abortController = new AbortController();
       abortRef.current = abortController;
 
-      // 构造用户消息并加入列表
       const userMsg: StreamMessage = {
         id: generateId(),
         type: "user",
@@ -108,13 +73,13 @@ export function useAgentStream() {
       setState((prev) => ({
         ...prev,
         isRunning: true,
-        activeNode: "start",
+        activeNode: "agent",
         messages: [...prev.messages, userMsg],
+        executionSteps: [],
         error: null,
         usage: null,
       }));
 
-      // 构造请求体
       const payload = {
         question,
         thread_id: threadIdRef.current,
@@ -122,7 +87,6 @@ export function useAgentStream() {
         max_iterations: 10,
       };
 
-      // 发起 SSE POST 请求
       fetch(`${API_BASE}/api/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,31 +104,28 @@ export function useAgentStream() {
 
           let buffer = "";
 
-          // 循环读取流数据
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
 
-            // SSE 协议以 "\n\n" 分隔事件
             const lines = buffer.split("\n\n");
             buffer = lines.pop() || "";
 
             for (const line of lines) {
               const trimmed = line.trim();
               if (!trimmed.startsWith("data: ")) continue;
-              const jsonStr = trimmed.slice(6); // 去掉 "data: " 前缀
+              const jsonStr = trimmed.slice(6);
               try {
                 const event: SSEEvent = JSON.parse(jsonStr);
                 handleEvent(event);
               } catch {
-                // 忽略格式异常的事件
+                // 忽略格式异常
               }
             }
           }
         })
         .catch((err) => {
-          // AbortError 是用户主动中断，不算错误
           if (err.name === "AbortError") return;
           setState((prev) => ({
             ...prev,
@@ -174,51 +135,63 @@ export function useAgentStream() {
           }));
         });
 
-      /**
-       * 处理单个 SSE 事件，更新前端状态
-       *
-       * 事件类型与状态更新映射：
-       * - run_start     → 标记 activeNode 为 agent
-       * - message       → 将 LLM 消息追加到消息列表
-       * - tool_call     → 显示工具调用卡片
-       * - tool_result   → 显示工具执行结果
-       * - thought       → 显示 CoT / ToT / Reflect 思考过程
-       * - candidate     → 显示候选方案列表
-       * - state_update  → 更新迭代计数、ToT 状态等
-       * - usage         → 记录用量统计
-       * - error         → 记录错误信息
-       * - run_complete  → 标记运行结束
-       */
       function handleEvent(event: SSEEvent) {
         setState((prev) => {
           const next = { ...prev };
+          const node = event.node || prev.activeNode;
+          const ts = Date.now();
 
           switch (event.type) {
+            // ---- run_start ----
             case "run_start": {
               next.activeNode = "agent";
               break;
             }
+
+            // ---- node_start / node_end ----
             case "node_start":
             case "node_end": {
               next.activeNode = event.node || prev.activeNode;
               break;
             }
+
+            // ---- message (LLM 响应) ----
             case "message": {
               const msg = event.data as unknown as MessagePayload;
-              if (msg.role === "user") break; // 忽略重复用户消息
+              if (msg.role === "user") break;
+
               next.messages = [
                 ...prev.messages,
                 {
                   id: generateId(),
                   type: msg.role === "tool" ? "tool_result" : "assistant",
                   content: msg.content,
-                  payload: msg as unknown as Record<string, unknown>,
-                  timestamp: Date.now(),
+                  payload: { ...msg, node },
+                  timestamp: ts,
                 },
               ];
-              next.activeNode = event.node || prev.activeNode;
+              next.activeNode = node;
+
+              // 派生 executionStep
+              if (msg.role === "assistant") {
+                const step: ExecutionStep = {
+                  id: generateId(),
+                  type: next.activeNode === "final" || next.activeNode === "evaluate"
+                    ? next.activeNode === "final" ? "final_step" : "evaluate_step"
+                    : "llm_decision",
+                  node: node || "agent",
+                  model_type: msg.model_type,
+                  content: msg.content,
+                  iteration: prev.iteration,
+                  status: "success",
+                  timestamp: ts,
+                };
+                next.executionSteps = [...prev.executionSteps, step];
+              }
               break;
             }
+
+            // ---- tool_call ----
             case "tool_call": {
               const tc = event.data as unknown as ToolCallPayload;
               next.messages = [
@@ -227,13 +200,30 @@ export function useAgentStream() {
                   id: generateId(),
                   type: "tool_call",
                   content: `调用工具: ${tc.tool_name}`,
-                  payload: tc as unknown as Record<string, unknown>,
-                  timestamp: Date.now(),
+                  payload: { ...tc, node: "tools" },
+                  timestamp: ts,
                 },
               ];
               next.activeNode = "tools";
+
+              next.executionSteps = [
+                ...prev.executionSteps,
+                {
+                  id: generateId(),
+                  type: "tool_call_step",
+                  node: "tools",
+                  tool_name: tc.tool_name,
+                  tool_args: tc.arguments,
+                  content: tc.tool_name,
+                  iteration: prev.iteration,
+                  status: "running",
+                  timestamp: ts,
+                },
+              ];
               break;
             }
+
+            // ---- tool_result ----
             case "tool_result": {
               const tr = event.data as unknown as ToolResultPayload;
               next.messages = [
@@ -244,12 +234,30 @@ export function useAgentStream() {
                   content: tr.ok
                     ? `工具 ${tr.tool_name} 执行成功`
                     : `工具 ${tr.tool_name} 执行失败: ${tr.error}`,
-                  payload: tr as unknown as Record<string, unknown>,
-                  timestamp: Date.now(),
+                  payload: { ...tr, node: "tools" },
+                  timestamp: ts,
                 },
               ];
+
+              // 追加 tool_result step
+              const updatedSteps = [...prev.executionSteps];
+              const toolStep: ExecutionStep = {
+                id: generateId(),
+                type: "tool_result_step",
+                node: "tools",
+                tool_name: tr.tool_name,
+                tool_ok: tr.ok,
+                tool_data: tr.data,
+                content: tr.ok ? "成功" : (tr.error || "失败"),
+                iteration: prev.iteration,
+                status: tr.ok ? "success" : "error",
+                timestamp: ts,
+              };
+              next.executionSteps = [...updatedSteps, toolStep];
               break;
             }
+
+            // ---- thought (CoT / ToT / Reflect) ----
             case "thought": {
               const th = event.data as unknown as ThoughtPayload;
               next.messages = [
@@ -258,12 +266,34 @@ export function useAgentStream() {
                   id: generateId(),
                   type: "thought",
                   content: th.content,
-                  payload: th as unknown as Record<string, unknown>,
-                  timestamp: Date.now(),
+                  payload: { ...th, node },
+                  timestamp: ts,
                 },
               ];
+
+              const thoughtType = th.thought_type === "cot"
+                ? "cot_step" as const
+                : th.thought_type === "tot"
+                  ? "tot_step" as const
+                  : "evaluate_step" as const;
+
+              next.executionSteps = [
+                ...prev.executionSteps,
+                {
+                  id: generateId(),
+                  type: thoughtType,
+                  node: node || th.thought_type,
+                  content: th.content,
+                  iteration: prev.iteration,
+                  status: "success",
+                  timestamp: ts,
+                },
+              ];
+              next.activeNode = node;
               break;
             }
+
+            // ---- candidate (ToT 候选方案) ----
             case "candidate": {
               const cand = event.data as unknown as CandidatePayload;
               next.messages = [
@@ -272,12 +302,27 @@ export function useAgentStream() {
                   id: generateId(),
                   type: "candidate",
                   content: `生成 ${cand.candidates.length} 个候选方案`,
-                  payload: cand as unknown as Record<string, unknown>,
-                  timestamp: Date.now(),
+                  payload: { ...cand, node: "tot" },
+                  timestamp: ts,
+                },
+              ];
+
+              next.executionSteps = [
+                ...prev.executionSteps,
+                {
+                  id: generateId(),
+                  type: "candidates_step",
+                  node: "tot",
+                  content: `${cand.candidates.length} 个候选方案`,
+                  iteration: prev.iteration,
+                  status: "success",
+                  timestamp: ts,
                 },
               ];
               break;
             }
+
+            // ---- state_update ----
             case "state_update": {
               const st = event.data as unknown as StateUpdatePayload;
               if (st.iteration !== undefined) next.iteration = st.iteration;
@@ -285,14 +330,32 @@ export function useAgentStream() {
               if (st.need_tot !== undefined) next.needTot = st.need_tot;
               break;
             }
+
+            // ---- usage ----
             case "usage": {
               next.usage = event.data as unknown as UsagePayload;
               break;
             }
+
+            // ---- error ----
             case "error": {
-              next.error = (event.data as { message?: string }).message || "未知错误";
+              const err = (event.data as { message?: string }).message || "未知错误";
+              next.error = err;
+              next.executionSteps = [
+                ...prev.executionSteps,
+                {
+                  id: generateId(),
+                  type: "evaluate_step",
+                  node: "system",
+                  content: err,
+                  status: "error",
+                  timestamp: ts,
+                },
+              ];
               break;
             }
+
+            // ---- run_complete ----
             case "run_complete": {
               next.isRunning = false;
               next.activeNode = null;
@@ -307,9 +370,6 @@ export function useAgentStream() {
     []
   );
 
-  /**
-   * 中止当前运行
-   */
   const stop = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -318,10 +378,6 @@ export function useAgentStream() {
     setState((prev) => ({ ...prev, isRunning: false, activeNode: null }));
   }, []);
 
-  /**
-   * 清空所有状态，重置到初始值
-   * 同时重置 thread_id，开启新一轮独立对话
-   */
   const clear = useCallback(() => {
     stop();
     threadIdRef.current = `frontend-${Date.now()}`;
@@ -329,6 +385,7 @@ export function useAgentStream() {
       isRunning: false,
       activeNode: null,
       messages: [],
+      executionSteps: [],
       iteration: 0,
       totRounds: 0,
       needTot: false,
