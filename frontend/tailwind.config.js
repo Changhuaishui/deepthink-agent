@@ -18,7 +18,6 @@ export default {
           pro: "#e67700",
           flash: "#0ca678",
           cot: "#7950f2",
-          tot: "#1971c2",
           tool: "#e8590c",
           error: "#c92a2a",
         },

@@ -11,7 +11,7 @@
 一开始我只是想复现书里的 ReAct Agent。但跑了几遍之后发现几个问题：
 
 - 书里用的是 LangChain 旧版的 `initialize_agent`，已经不太够用了
-- 没有显式的 CoT/ToT 实现，推理过程黑盒
+- 没有显式的 CoT 实现，推理过程黑盒
 - 工具都是模拟的，search 返回的是写死的字典，不是真实搜索
 - 没有成本追踪，跑了多少 Token、花了多少钱，完全不知道
 
@@ -36,7 +36,7 @@
 | "用 Python 画个正弦波" | 调用 `python_tool`，沙箱执行 |
 | "当前目录有哪些文件" | 调用 `list_dir_tool`，真实读文件系统 |
 | "拉取 Claude Code 源码" | 调用 `git_clone_tool`，执行 `git clone` |
-| "对比两个方案哪个更好" | 启动 ToT 模式，生成多个候选并评估 |
+| "对比两个方案哪个更好" | 启动轻量分步分析，再按工具反馈循环推进 |
 
 注意，所有工具都是真实调用，不是假数据。
 
@@ -64,7 +64,7 @@ deepthink-agent/
 ├── main.py               # CLI 入口
 ├── state.py              # 状态容器
 ├── nodes/
-│   └── nodes.py          # 8 个节点：Agent / 权限 / CoT / ToT / 工具执行 / 评估 / 反思 / 最终回答
+│   └── nodes.py          # 5 个节点：Agent / 权限 / CoT / 工具执行 / 最终回答
 ├── tools/
 │   └── tools.py          # 9 个工具
 └── utils/
@@ -86,9 +86,9 @@ deepthink-agent/
 │ agent   │ ← LLM 主决策，bind_tools + 上下文压缩
 └────┬────┘
      │
-┌────┼────┬──────────┐
-▼    ▼    ▼          ▼
-permission  tot  evaluate  final/end
+┌────┼──────────┐
+▼    ▼          ▼
+permission  cot  final/end
 │
 ├─ 拒绝 → END
 └─ 通过

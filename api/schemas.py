@@ -13,7 +13,7 @@ class ChatRequest(BaseModel):
     """聊天请求"""
     question: str = Field(..., min_length=1, description="用户问题")
     thread_id: str = Field(default="frontend", description="会话ID")
-    enable_tot: bool = Field(default=False, description="是否启用ToT深度思考")
+    enable_deep_thinking: bool = Field(default=False, description="是否启用轻量分步分析")
     max_iterations: int = Field(default=10, ge=1, le=50, description="最大迭代次数")
 
 
@@ -96,8 +96,7 @@ class SSEEvent(BaseModel):
     - message: LLM 消息（AI/Human/Tool）
     - tool_call: 工具调用请求
     - tool_result: 工具执行结果
-    - thought: CoT/ToT 思考内容
-    - candidate: ToT 候选方案更新
+    - thought: CoT 思考内容
     - state_update: 状态变更通知
     - usage: 用量记录
     - error: 错误
@@ -105,7 +104,7 @@ class SSEEvent(BaseModel):
     """
     type: Literal[
         "run_start", "node_start", "node_end", "message",
-        "tool_call", "tool_result", "thought", "candidate",
+        "tool_call", "tool_result", "thought",
         "state_update", "usage", "error", "run_complete",
     ]
     node: Optional[str] = None  # 关联的节点名
@@ -138,20 +137,13 @@ class ToolResultPayload(BaseModel):
 
 class ThoughtPayload(BaseModel):
     """思考事件载荷"""
-    thought_type: Literal["cot", "tot", "reflect"]
+    thought_type: Literal["cot"]
     content: str
     details: Optional[Dict[str, Any]] = None
-
-
-class CandidatePayload(BaseModel):
-    """候选方案事件载荷"""
-    candidates: List[Dict[str, Any]]
-    best_idx: int
 
 
 class StateUpdatePayload(BaseModel):
     """状态更新事件载荷"""
     iteration: int
-    tot_rounds: int
-    need_tot: bool
+    need_deep_thinking: bool
     permission_granted: Optional[bool] = None

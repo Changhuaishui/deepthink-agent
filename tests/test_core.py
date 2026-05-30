@@ -23,12 +23,9 @@ def _state(**overrides):
         "messages": [HumanMessage(content="hello")],
         "thread_id": "test",
         "thoughts": [],
-        "candidates": [],
-        "best_candidate_idx": 0,
         "iteration": 0,
         "max_iterations": Config.AGENT_MAX_ITERATIONS,
-        "need_tot": False,
-        "tot_rounds": 0,
+        "need_deep_thinking": False,
         "tool_results": {},
         "permission_granted": False,
         "total_tokens": 0,
@@ -45,10 +42,10 @@ class CoreBehaviorTest(unittest.TestCase):
             ChatRequest(question="ok", max_iterations=0)
         self.assertEqual(ChatRequest(question="ok").thread_id, "frontend")
 
-    def test_route_after_agent_enters_cot_before_tot(self):
+    def test_route_after_agent_enters_cot_for_deep_thinking(self):
         state = _state(
             messages=[HumanMessage(content="compare options"), AIMessage(content="thinking")],
-            need_tot=True,
+            need_deep_thinking=True,
         )
         self.assertEqual(route_after_agent(state), "cot")
 

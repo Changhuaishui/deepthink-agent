@@ -10,10 +10,9 @@ interface StatsPanelProps {
   onClose: () => void;
   usage: UsagePayload | null;
   iteration: number;
-  totRounds: number;
 }
 
-export default function StatsPanel({ open, onClose, usage, iteration, totRounds }: StatsPanelProps) {
+export default function StatsPanel({ open, onClose, usage, iteration }: StatsPanelProps) {
   return (
     <AnimatePresence>
       {open && (
@@ -46,14 +45,10 @@ export default function StatsPanel({ open, onClose, usage, iteration, totRounds 
               {/* 当前会话状态 */}
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
                 <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">当前会话</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div>
                   <div>
                     <p className="text-[10px] text-gray-500">迭代次数</p>
                     <p className="mt-0.5 text-lg font-mono text-emerald-600">{iteration}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-500">ToT 轮次</p>
-                    <p className="mt-0.5 text-lg font-mono text-blue-600">{totRounds}</p>
                   </div>
                 </div>
               </div>

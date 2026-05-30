@@ -22,7 +22,7 @@ class UsageRecord:
     completion_tokens: int
     total_tokens: int
     cost_usd: float
-    node_name: str          # 哪个节点触发的（agent/cot/tot/final）
+    node_name: str          # 哪个节点触发的（agent/cot/final）
     thread_id: str          # 会话 ID
     latency_ms: int         # 耗时毫秒
     metadata: str           # JSON 附加信息

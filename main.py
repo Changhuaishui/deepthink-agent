@@ -11,7 +11,6 @@ DeepThink Agent 入口文件
 - 第1-2章：LangChain Tool 定义与 ReAct 概念
 - 第4章：RAG 工具中的 FAISS + Embedding
 - 第5章：Sensor→Thinker→Actuator 映射到 Node 结构
-- 第9章：evaluate_node 中的评估逻辑
 - 第10章：iteration / max_iterations 性能控制
 
 Claude Code 源码对照：
@@ -53,12 +52,9 @@ def run_agent(question: str, thread_id: str = "demo") -> None:
         "messages": [HumanMessage(content=question)],
         "thread_id": thread_id,
         "thoughts": [],
-        "candidates": [],
-        "best_candidate_idx": 0,
         "iteration": 0,
         "max_iterations": Config.AGENT_MAX_ITERATIONS,
-        "need_tot": False,
-        "tot_rounds": 0,
+        "need_deep_thinking": False,
         "tool_results": {},
         "permission_granted": False,
         "total_tokens": 0,
@@ -116,19 +112,12 @@ def run_agent(question: str, thread_id: str = "demo") -> None:
                 content = msg.content
                 if "[CoT" in content:
                     prefix = "🧩"
-                elif "[ToT" in content:
-                    prefix = "🌲"
                 elif "[反思" in content:
                     prefix = "🪞"
                 elif "[权限确认" in content:
                     prefix = "🔒"
                 print(f"\n{prefix} {model_tag}{content}")
         
-        # 纯状态更新
-        if not new_messages:
-            if event.get("candidates"):
-                print(f"\n🌲 [ToT 更新] 候选: {len(event['candidates'])}, 最佳: {event.get('best_candidate_idx', 'N/A')}")
-    
     # 打印会话用量摘要
     summary = usage_db.summary_by_thread(thread_id)
     print("\n" + "=" * 60)
@@ -226,7 +215,7 @@ def demo_batch():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="DeepThink Agent - CoT + ToT + 工具调用")
+    parser = argparse.ArgumentParser(description="DeepThink Agent - CoT + 工具调用")
     parser.add_argument("--question", "-q", type=str, help="单次提问")
     parser.add_argument("--interactive", "-i", action="store_true", help="交互模式")
     parser.add_argument("--demo", "-d", action="store_true", help="批量演示")
@@ -256,7 +245,7 @@ if __name__ == "__main__":
         print()
         
         if Config.is_api_ready():
-            run_agent("请介绍一下 DeepThink Agent 的工作原理，并说明 CoT 和 ToT 分别起什么作用？")
+            run_agent("请介绍一下 DeepThink Agent 的工作原理，并说明 CoT 起什么作用？")
         else:
             print("⚠️ 未检测到 API Key，已跳过默认示例。")
             print("   请编辑 .env 文件或在环境变量中设置 OPENAI_API_KEY")

@@ -355,7 +355,7 @@ class RAGKnowledgeBase:
         self.docs = [
             "LangGraph 的状态图由节点（Node）和边（Edge）组成，节点代表操作，边代表状态流转。",
             "CoT（Chain-of-Thought）通过在提示中要求模型逐步推理，能显著提升复杂任务准确率。",
-            "ToT（Tree-of-Thought）将推理过程建模为树结构，每个节点是一个思维步骤，通过搜索找到最优路径。",
+            "本项目采用 LangGraph 循环和工具反馈机制，不再内置多分支搜索推理。",
             "Claude Code 的核心是一个 Agent 循环：用户输入 -> 构建消息 -> 调用 LLM -> 判断是否需要工具 -> 执行工具 -> 循环。",
             "工具调用（Tool Calling）让 LLM 能够生成结构化输出（JSON）来触发外部函数，是现代 Agent 的基础能力。",
             "RAG（检索增强生成）结合了信息检索和文本生成，通过向量相似度检索相关知识片段，再输入 LLM 生成答案。",

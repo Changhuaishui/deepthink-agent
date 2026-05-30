@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="DeepThink Agent API",
-    description="CoT + ToT + 工具调用 Agent 的 HTTP/SSE 接口",
+    description="CoT + 工具调用 Agent 的 HTTP/SSE 接口",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -144,7 +144,7 @@ def _extract_message_payload(msg) -> Optional[dict]:
 async def _chat_stream(
     question: str,
     thread_id: str,
-    enable_tot: bool,
+    enable_deep_thinking: bool,
     max_iterations: int,
 ) -> AsyncGenerator[str, None]:
     """Agent 执行流：将 LangGraph stream 转换为 SSE 事件"""
@@ -156,12 +156,9 @@ async def _chat_stream(
         "messages": [HumanMessage(content=question)],
         "thread_id": thread_id,
         "thoughts": [],
-        "candidates": [],
-        "best_candidate_idx": 0,
         "iteration": 0,
         "max_iterations": max_iterations,
-        "need_tot": enable_tot,
-        "tot_rounds": 0,
+        "need_deep_thinking": enable_deep_thinking,
         "tool_results": {},
         "permission_granted": False,
         "total_tokens": 0,
@@ -172,7 +169,11 @@ async def _chat_stream(
     # 发送开始事件
     yield _sse_format("run_start", {
         "node": "start",
-        "data": {"question": question, "thread_id": thread_id, "enable_tot": enable_tot},
+        "data": {
+            "question": question,
+            "thread_id": thread_id,
+            "enable_deep_thinking": enable_deep_thinking,
+        },
     })
     
     # 跟踪上一个状态，用于计算增量
@@ -220,15 +221,6 @@ async def _chat_stream(
                             },
                         })
                 
-                if event.get("candidates") != prev_state.get("candidates"):
-                    candidates = event.get("candidates", [])
-                    best_idx = event.get("best_candidate_idx", 0)
-                    state_delta["candidates"] = candidates
-                    yield _sse_format("candidate", {
-                        "node": "tot",
-                        "data": {"candidates": candidates, "best_idx": best_idx},
-                    })
-                
                 if event.get("tool_results") != prev_state.get("tool_results"):
                     tool_results = event.get("tool_results", {})
                     # 找出新增的工具结果
@@ -263,8 +255,7 @@ async def _chat_stream(
                 "node": "system",
                 "data": {
                     "iteration": event.get("iteration", 0),
-                    "tot_rounds": event.get("tot_rounds", 0),
-                    "need_tot": event.get("need_tot", False),
+                    "need_deep_thinking": event.get("need_deep_thinking", False),
                 },
             })
             
@@ -346,12 +337,12 @@ async def chat_stream(request: ChatRequest):
     """
     if not Config.is_api_ready():
         raise HTTPException(status_code=503, detail="API Key 未配置，服务不可用")
-    
+
     return StreamingResponse(
         _chat_stream(
             question=request.question,
             thread_id=request.thread_id,
-            enable_tot=request.enable_tot,
+            enable_deep_thinking=request.enable_deep_thinking,
             max_iterations=request.max_iterations,
         ),
         media_type="text/event-stream",
