@@ -121,7 +121,7 @@ pip install -r requirements.txt
 编辑 `.env`：
 
 ```env
-OPENAI_API_KEY=sk-your-key
+OPENAI_API_KEY=<your-api-key>
 OPENAI_BASE_URL=https://api.deepseek.com/v1
 LLM_PRO_MODEL=deepseek-v4-pro
 LLM_FLASH_MODEL=deepseek-v4-flash

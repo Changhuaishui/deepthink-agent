@@ -2,7 +2,7 @@
 DeepThink Agent 入口文件
 
 环境配置（推荐写入 .env 文件）：
-    OPENAI_API_KEY=sk-xxx
+    OPENAI_API_KEY=<your-api-key>
     OPENAI_BASE_URL=https://api.deepseek.com/v1
     LLM_PRO_MODEL=deepseek-v4-pro
     LLM_FLASH_MODEL=deepseek-v4-flash
@@ -45,7 +45,7 @@ def run_agent(question: str, thread_id: str = "demo") -> None:
     if not Config.is_api_ready():
         print("❌ 错误: API Key 未配置")
         print("   请在 .env 文件中设置 OPENAI_API_KEY，或执行:")
-        print("   $env:OPENAI_API_KEY='sk-xxx'")
+        print("   $env:OPENAI_API_KEY='<your-api-key>'")
         return
     
     initial_state: AgentState = {
