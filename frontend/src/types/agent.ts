@@ -142,3 +142,33 @@ export interface StreamMessage {
   payload?: Record<string, unknown>;  // 原始载荷，供组件按需读取
   timestamp: number;        // 前端收到时间（Unix 毫秒）
 }
+
+/** 执行步骤类型 — 驱动 ExecutionTimeline */
+export type ExecutionStepType =
+  | "llm_decision"
+  | "permission_check"
+  | "tool_call_step"
+  | "tool_result_step"
+  | "cot_step"
+  | "tot_step"
+  | "candidates_step"
+  | "evaluate_step"
+  | "final_step";
+
+/** 执行时间线步骤 */
+export interface ExecutionStep {
+  id: string;
+  type: ExecutionStepType;
+  node: string;                    // SSE event.node
+  model_type?: string;             // pro | flash
+  tool_name?: string;
+  tool_args?: Record<string, unknown>;
+  tool_ok?: boolean;
+  tool_data?: unknown;
+  content: string;
+  iteration?: number;
+  tot_rounds?: number;
+  status: "running" | "success" | "error" | "pending";
+  timestamp: number;
+  collapsed?: boolean;
+}
