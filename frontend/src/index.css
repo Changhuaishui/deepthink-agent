@@ -1,34 +1,32 @@
 /**
- * 全局样式文件 —— Obsidian Control Deck 主题
+ * 全局样式文件 —— 浅色专业主题
  *
  * 内容：
- * 1. Tailwind 指令（base / components / utilities）
- * 2. CSS 变量定义（色彩系统）
- * 3. 全局重置（html/body/#root 高度、字体、抗锯齿）
- * 4. 自定义滚动条样式
- * 5. 文字选中高亮色
- * 6. 颗粒噪点纹理（grain-overlay）
- * 7. 发光工具类（glow-*）
- * 8. 动画关键帧（borderRotate）
+ * 1. Tailwind 指令
+ * 2. CSS 变量（浅色色板）
+ * 3. 全局重置
+ * 4. 自定义滚动条
+ * 5. 文字选中高亮
+ * 6. 动画关键帧
  */
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Obsidian Control Deck — CSS 变量 */
+/* 浅色专业主题 — CSS 变量 */
 :root {
-  --color-bg: #070709;
-  --color-panel: #0f1016;
-  --color-panel-hover: #161722;
-  --color-border: #1e1f2a;
-  --color-ivory: #e8e6e3;
-  --color-muted: #6b6b75;
-  --color-pro: #f5a623;
-  --color-flash: #00d4aa;
-  --color-cot: #b8a1e6;
-  --color-tot: #4facfe;
-  --color-tool: #fdcb6e;
+  --color-bg: #f8f9fa;
+  --color-panel: #ffffff;
+  --color-panel-hover: #f1f3f5;
+  --color-border: #dee2e6;
+  --color-ivory: #212529;
+  --color-muted: #6c757d;
+  --color-pro: #e67700;
+  --color-flash: #0ca678;
+  --color-cot: #7950f2;
+  --color-tot: #1971c2;
+  --color-tool: #e8590c;
+  --color-error: #c92a2a;
 }
 
 /* 全局重置 */
@@ -36,9 +34,14 @@ html, body, #root {
   height: 100%;
   background-color: var(--color-bg);
   color: var(--color-ivory);
-  font-family: "JetBrains Mono", monospace;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 代码等宽字体 */
+code, pre, .font-mono {
+  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
 }
 
 /* 自定义滚动条 */
@@ -49,56 +52,25 @@ html, body, #root {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: #ced4da;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted);
+  background: #adb5bd;
 }
 
 /* 文字选中高亮 */
 ::selection {
-  background: rgba(0, 212, 170, 0.3);
+  background: rgba(12, 166, 120, 0.2);
   color: var(--color-ivory);
 }
 
-/* 显示字体工具类 */
+/* 显示字体 */
 .font-display {
-  font-family: "Oranienbaum", serif;
+  font-family: "Oranienbaum", Georgia, serif;
 }
 
-/* 颗粒噪点纹理叠加层 */
-.grain-overlay::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  opacity: 0.03;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  z-index: 9999;
-}
-
-/* 发光效果工具类 —— 用于节点高亮 */
-.glow-pro {
-  box-shadow: 0 0 12px rgba(245, 166, 35, 0.25);
-}
-.glow-flash {
-  box-shadow: 0 0 12px rgba(0, 212, 170, 0.25);
-}
-.glow-cot {
-  box-shadow: 0 0 12px rgba(184, 161, 230, 0.25);
-}
-.glow-tot {
-  box-shadow: 0 0 12px rgba(79, 172, 254, 0.25);
-}
-.glow-tool {
-  box-shadow: 0 0 12px rgba(253, 203, 110, 0.25);
-}
-
-/* 边框旋转动画（预留用于装饰性元素） */
+/* 边框旋转动画 */
 @keyframes borderRotate {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
